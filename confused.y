@@ -61,7 +61,7 @@ int lookup(char *name) {
 }
 
 void insert(char *name, char *type, int value) {
-    printf("DEBUG insert() called for '%s', lookup=%d\n", name, lookup(name));
+    
     if (lookup(name) != -1) {
         printf("Error: Variable '%s' already declared.\n", name);
         return;
@@ -73,7 +73,6 @@ void insert(char *name, char *type, int value) {
     f->local_count++;
 }
 void insertFloat(char *name, char *type, float value) {
-    printf("DEBUG insertFloat() called for '%s', lookup=%d\n", name, lookup(name));
     if (lookup(name) != -1) {
         printf("Error: Variable '%s' already declared.\n", name);
         return;
@@ -341,7 +340,8 @@ void execute(Node *n) {
 %left ADD SUB
 %left MUL DIV MOD
 
-%type <nval> program statement expr declaration
+
+%type <nval> program statement expr declaration show_stmt iff_stmt or_chain
 
 %%
 
@@ -353,6 +353,40 @@ program
 
 statement
     : declaration           { $$ = $1; }
+    | show_stmt             { $$ = $1; }
+    | iff_stmt              { $$ = $1; }
+    ;
+show_stmt
+    : SHOW '(' expr ')' HASH {
+        Node *n = makeNode(NODE_SHOW, $3, NULL, NULL);
+        $$ = n;
+    }
+    ;
+
+iff_stmt
+    : IFF '(' expr ')' '{' program '}' {
+        /* Iff with no else branch */
+        $$ = makeNode(NODE_IF, $3, $6, NULL);
+    }
+    | IFF '(' expr ')' '{' program '}' or_chain {
+        /* Iff with or/oriff chain */
+        $$ = makeNode(NODE_IF, $3, $6, $8);
+    }
+    ;
+
+or_chain
+    : OR '{' program '}' {
+        /* plain or — the else branch */
+        $$ = $3;
+    }
+    | ORIFF '(' expr ')' '{' program '}' {
+        /* oriff with no further chain */
+        $$ = makeNode(NODE_IF, $3, $6, NULL);
+    }
+    | ORIFF '(' expr ')' '{' program '}' or_chain {
+        /* oriff chained with more oriff/or */
+        $$ = makeNode(NODE_IF, $3, $6, $8);
+    }
     ;
 
 declaration
