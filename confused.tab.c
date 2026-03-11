@@ -429,9 +429,346 @@ void execute(Node *n) {
     }
 }
 
+/* ══════════════════════════════
+   TAC HELPERS
+   ══════════════════════════════ */
+
+int temp_count  = 0;   /* counts t1, t2, t3 ... */
+int label_count = 0;   /* counts L1, L2, L3 ... */
+
+/* Returns a new unique temporary name like "t1", "t2" etc.
+   malloc gives it its own memory so it persists after the function returns. */
+char *new_temp() {
+    char *buf = malloc(16);
+    sprintf(buf, "t%d", ++temp_count);
+    return buf;
+}
+
+/* Returns a new unique label name like "L1", "L2" etc.
+   Used for Iff, wlp, flp branch targets. */
+char *new_label() {
+    char *buf = malloc(16);
+    sprintf(buf, "L%d", ++label_count);
+    return buf;
+}
+
+/* ══════════════════════════════
+   gen() — TAC for EXPRESSIONS
+   Takes a node, prints TAC instructions for everything inside it,
+   and returns a string: either a variable name, a literal, or a
+   new temporary that holds the result.
+   ══════════════════════════════ */
+
+/* Forward declaration so gen() and gen_stmt() can call each other */
+void gen_stmt(Node *n);
+
+char *gen(Node *n) {
+    if (n == NULL) return strdup("0");
+
+    switch (n->type) {
+
+        /* ── LEAF NODES ── no instruction needed, just return the name/value */
+        case NODE_NUM: {
+            /* It's a literal number like 3 or 5.0
+               We format it as a string and return it directly.
+               No temporary needed — the value is already "known". */
+            char *buf = malloc(32);
+            if (n->value == (int)n->value)
+                sprintf(buf, "%d", (int)n->value);
+            else
+                sprintf(buf, "%.2f", n->value);
+            return buf;
+        }
+
+        case NODE_IDENT:
+            /* It's a variable like x or result.
+               The "address" of this value is just the variable's name.
+               Return it directly — no instruction, no temporary. */
+            return strdup(n->name);
+
+        /* ── ARITHMETIC NODES ── 
+           Pattern is always: gen left, gen right, make temp, print instruction, return temp */
+        case NODE_ADD: {
+            char *l = gen(n->left);   /* generate TAC for left side  */
+            char *r = gen(n->right);  /* generate TAC for right side */
+            char *t = new_temp();     /* fresh bucket for the result  */
+            printf("%s = %s + %s\n", t, l, r);
+            return t;
+        }
+        case NODE_SUB: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s - %s\n", t, l, r);
+            return t;
+        }
+        case NODE_MUL: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s * %s\n", t, l, r);
+            return t;
+        }
+        case NODE_DIV: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s / %s\n", t, l, r);
+            return t;
+        }
+        case NODE_MOD: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s %% %s\n", t, l, r);  /* %% prints a literal % */
+            return t;
+        }
+
+        /* ── RELATIONAL NODES ──
+           These produce a 0 or 1 result, stored in a temporary.
+           Used as conditions in Iff and wlp. */
+        case NODE_GT: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s > %s\n", t, l, r);
+            return t;
+        }
+        case NODE_LT: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s < %s\n", t, l, r);
+            return t;
+        }
+        case NODE_EQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s == %s\n", t, l, r);
+            return t;
+        }
+        case NODE_NEQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s != %s\n", t, l, r);
+            return t;
+        }
+        case NODE_GEQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s >= %s\n", t, l, r);
+            return t;
+        }
+        case NODE_LEQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s <= %s\n", t, l, r);
+            return t;
+        }
+
+        /* ── FUNCTION CALL ──
+           TAC convention: push each argument with "param", then "call".
+           The return value lands in a new temporary. */
+        case NODE_FUNC_CALL: {
+            /* First, generate TAC for every argument and emit param instructions.
+               Arguments are chained as NODE_ARG nodes via the right pointer. */
+            Node *arg = n->left;
+            while (arg != NULL) {
+                char *a = gen(arg->left);   /* evaluate the argument expression */
+                printf("param %s\n", a);    /* push it onto the param list */
+                arg = arg->right;
+            }
+            /* Now emit the call instruction and capture the return value */
+            char *t = new_temp();
+            printf("%s = call %s\n", t, n->name);
+            return t;
+        }
+
+        default:
+            return strdup("?");
+    }
+}
+
+/* ══════════════════════════════
+   gen_stmt() — TAC for STATEMENTS
+   Walks statement nodes and emits TAC.
+   Returns nothing — statements are actions, not values.
+   ══════════════════════════════ */
+void gen_stmt(Node *n) {
+    if (n == NULL) return;
+
+    switch (n->type) {
+
+        /* NODE_SEQ is the backbone of the program — a chain of statements.
+           Just recurse left then right, same as execute() does. */
+        case NODE_SEQ:
+            gen_stmt(n->left);
+            gen_stmt(n->right);
+            break;
+
+        /* Declaration: evaluate the right-hand expression, assign to variable.
+           Example:  In result @ myAdd(3 $ 5)#
+           TAC:      param 3
+                     param 5
+                     t1 = call myAdd
+                     result = t1              */
+        case NODE_DECL: {
+            char *t = gen(n->left);        /* generate TAC for the expression */
+            printf("%s = %s\n", n->name, t); /* assign result to the variable */
+            break;
+        }
+
+        /* Show(): evaluate the expression, then print it.
+           Example:  Show(result)#
+           TAC:      t2 = result
+                     print t2               */
+        case NODE_SHOW: {
+            char *t = gen(n->left);
+            printf("print %s\n", t);
+            break;
+        }
+
+        /* Compound assignment: x @@ expr  means  x = x + expr
+           TAC:  t1 = x + expr_result
+                 x  = t1                   */
+        case NODE_COMPOUND_ADD: {
+            char *t_val = gen(n->left);     /* generate the right-hand expr */
+            char *t_res = new_temp();
+            printf("%s = %s + %s\n", t_res, n->name, t_val);
+            printf("%s = %s\n", n->name, t_res);
+            break;
+        }
+
+        /* Return statement inside a function.
+           TAC:  t1 = expr_result
+                 return t1                 */
+        case NODE_RETURN: {
+            char *t = gen(n->left);
+            printf("return %s\n", t);
+            break;
+        }
+
+        /* Function definition: print a label marking where the function starts,
+           then generate TAC for the body.
+           NODE_FUNC_DEF itself doesn't execute — but in TAC we want to show
+           the function's code as a labeled section. */
+        case NODE_FUNC_DEF: {
+            printf("\n; --- function %s ---\n", n->name);
+            /* Print parameter names so the TAC is readable */
+            FuncEntry *fn = lookup_func(n->name);
+            if (fn) {
+                for (int i = 0; i < fn->param_count; i++)
+                    printf("; param %s\n", fn->param_names[i]);
+            }
+            gen_stmt(n->middle);   /* middle child = function body (the block) */
+            printf("; --- end %s ---\n\n", n->name);
+            break;
+        }
+
+        /* Iff statement — this is where labels become essential.
+           Pattern:
+               <condition TAC>
+               if t1 goto L1
+               goto L2
+           L1:
+               <true body TAC>
+           L2:                         */
+        case NODE_IF: {
+            char *t   = gen(n->left);     /* generate condition expression TAC */
+            char *l_true = new_label();   /* label for the true branch */
+            char *l_end  = new_label();   /* label for after the whole Iff */
+
+            printf("if %s goto %s\n", t, l_true);
+            printf("goto %s\n", l_end);
+            printf("%s:\n", l_true);
+            gen_stmt(n->middle);           /* true branch body */
+            printf("%s:\n", l_end);
+            if (n->right != NULL)
+                gen_stmt(n->right);        /* or/oriff chain if it exists */
+            break;
+        }
+
+        /* wlp (while loop).
+           Pattern:
+           L1:                    <- loop back here each iteration
+               <condition TAC>
+               if t1 goto L2      <- enter body if condition true
+               goto L3            <- exit loop if condition false
+           L2:
+               <body TAC>
+               goto L1            <- always jump back to check condition
+           L3:                    <- loop exits here               */
+        case NODE_WHILE: {
+            char *l_start = new_label();   /* top of loop — re-evaluated each time */
+            char *l_body  = new_label();   /* enter body */
+            char *l_end   = new_label();   /* exit loop  */
+
+            printf("%s:\n", l_start);
+            char *t = gen(n->left);        /* condition expression */
+            printf("if %s goto %s\n", t, l_body);
+            printf("goto %s\n", l_end);
+            printf("%s:\n", l_body);
+            gen_stmt(n->middle);           /* loop body */
+            printf("goto %s\n", l_start); /* jump back to re-check condition */
+            printf("%s:\n", l_end);
+            break;
+        }
+
+        /* flp (range-based for loop).
+           We expand it into TAC using i as the loop variable.
+           Pattern:
+               i = start
+           L1:
+               t1 = i < end
+               if t1 goto L2
+               goto L3
+           L2:
+               <body TAC>
+               i = i + 1
+               goto L1
+           L3:                                                    */
+        case NODE_FOR: {
+            char *start   = gen(n->left);    /* start expression */
+            char *end_val = gen(n->middle);  /* end expression   */
+            char *l_start = new_label();
+            char *l_body  = new_label();
+            char *l_end   = new_label();
+
+            printf("i = %s\n", start);        /* initialize loop variable */
+            printf("%s:\n", l_start);
+            char *t_cond = new_temp();
+            printf("%s = i < %s\n", t_cond, end_val);  /* check i < end */
+            printf("if %s goto %s\n", t_cond, l_body);
+            printf("goto %s\n", l_end);
+            printf("%s:\n", l_body);
+            gen_stmt(n->right);                /* loop body */
+            char *t_inc = new_temp();
+            printf("%s = i + 1\n", t_inc);     /* increment i */
+            printf("i = %s\n", t_inc);
+            printf("goto %s\n", l_start);
+            printf("%s:\n", l_end);
+            break;
+        }
+
+        case NODE_FUNC_CALL:
+            /* A standalone function call statement — generate it as an expression
+               but discard the return value since nobody is using it. */
+            gen(n);
+            break;
+
+        default:
+            break;
+    }
+}
+
+
 
 /* Line 189 of yacc.c  */
-#line 435 "confused.tab.c"
+#line 772 "confused.tab.c"
 
 /* Enabling traces.  */
 #ifndef YYDEBUG
@@ -522,7 +859,7 @@ typedef union YYSTYPE
 {
 
 /* Line 214 of yacc.c  */
-#line 364 "confused.y"
+#line 701 "confused.y"
 
     char        *sval;
     int          ival;
@@ -533,7 +870,7 @@ typedef union YYSTYPE
 
 
 /* Line 214 of yacc.c  */
-#line 537 "confused.tab.c"
+#line 874 "confused.tab.c"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
@@ -545,7 +882,7 @@ typedef union YYSTYPE
 
 
 /* Line 264 of yacc.c  */
-#line 549 "confused.tab.c"
+#line 886 "confused.tab.c"
 
 #ifdef short
 # undef short
@@ -858,12 +1195,12 @@ static const yytype_int8 yyrhs[] =
 /* YYRLINE[YYN] -- source line where rule number YYN was defined.  */
 static const yytype_uint16 yyrline[] =
 {
-       0,   407,   407,   408,   412,   413,   414,   415,   416,   417,
-     418,   419,   420,   424,   429,   430,   433,   439,   448,   449,
-     450,   460,   461,   462,   473,   480,   492,   500,   507,   513,
-     521,   528,   532,   539,   543,   547,   554,   560,   569,   570,
-     571,   572,   573,   574,   575,   576,   577,   578,   579,   580,
-     581,   582,   583,   584
+       0,   744,   744,   745,   749,   750,   751,   752,   753,   754,
+     755,   756,   757,   761,   766,   767,   770,   776,   785,   786,
+     787,   797,   798,   799,   810,   817,   829,   837,   844,   850,
+     858,   865,   869,   876,   880,   884,   891,   897,   906,   907,
+     908,   909,   910,   911,   912,   913,   914,   915,   916,   917,
+     918,   919,   920,   921
 };
 #endif
 
@@ -1905,84 +2242,84 @@ yyreduce:
         case 2:
 
 /* Line 1455 of yacc.c  */
-#line 407 "confused.y"
+#line 744 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); root = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 3:
 
 /* Line 1455 of yacc.c  */
-#line 408 "confused.y"
+#line 745 "confused.y"
     { (yyval.nval) = makeNode(NODE_SEQ, (yyvsp[(1) - (2)].nval), NULL, (yyvsp[(2) - (2)].nval)); root = (yyval.nval); ;}
     break;
 
   case 4:
 
 /* Line 1455 of yacc.c  */
-#line 412 "confused.y"
+#line 749 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 5:
 
 /* Line 1455 of yacc.c  */
-#line 413 "confused.y"
+#line 750 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 6:
 
 /* Line 1455 of yacc.c  */
-#line 414 "confused.y"
+#line 751 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 7:
 
 /* Line 1455 of yacc.c  */
-#line 415 "confused.y"
+#line 752 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 8:
 
 /* Line 1455 of yacc.c  */
-#line 416 "confused.y"
+#line 753 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 9:
 
 /* Line 1455 of yacc.c  */
-#line 417 "confused.y"
+#line 754 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 10:
 
 /* Line 1455 of yacc.c  */
-#line 418 "confused.y"
+#line 755 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 11:
 
 /* Line 1455 of yacc.c  */
-#line 419 "confused.y"
+#line 756 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 12:
 
 /* Line 1455 of yacc.c  */
-#line 420 "confused.y"
+#line 757 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (2)].nval); ;}
     break;
 
   case 13:
 
 /* Line 1455 of yacc.c  */
-#line 424 "confused.y"
+#line 761 "confused.y"
     {
         (yyval.nval) = makeNode(NODE_RETURN, (yyvsp[(2) - (3)].nval), NULL, NULL);
     ;}
@@ -1991,21 +2328,21 @@ yyreduce:
   case 14:
 
 /* Line 1455 of yacc.c  */
-#line 429 "confused.y"
+#line 766 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 15:
 
 /* Line 1455 of yacc.c  */
-#line 430 "confused.y"
+#line 767 "confused.y"
     { (yyval.nval) = makeNode(NODE_SEQ, (yyvsp[(1) - (2)].nval), NULL, (yyvsp[(2) - (2)].nval)); ;}
     break;
 
   case 16:
 
 /* Line 1455 of yacc.c  */
-#line 433 "confused.y"
+#line 770 "confused.y"
     {
         Node *n = makeNode(NODE_PARAM, NULL, NULL, NULL);
         n->name  = strdup((yyvsp[(2) - (2)].sval));
@@ -2017,7 +2354,7 @@ yyreduce:
   case 17:
 
 /* Line 1455 of yacc.c  */
-#line 439 "confused.y"
+#line 776 "confused.y"
     {
         Node *n = makeNode(NODE_PARAM, NULL, NULL, NULL);
         n->name  = strdup((yyvsp[(2) - (2)].sval));
@@ -2029,21 +2366,21 @@ yyreduce:
   case 18:
 
 /* Line 1455 of yacc.c  */
-#line 448 "confused.y"
+#line 785 "confused.y"
     { (yyval.nval) = NULL; ;}
     break;
 
   case 19:
 
 /* Line 1455 of yacc.c  */
-#line 449 "confused.y"
+#line 786 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 20:
 
 /* Line 1455 of yacc.c  */
-#line 450 "confused.y"
+#line 787 "confused.y"
     {
         /* chain params using the right pointer */
         Node *p = (yyvsp[(1) - (3)].nval);
@@ -2056,21 +2393,21 @@ yyreduce:
   case 21:
 
 /* Line 1455 of yacc.c  */
-#line 460 "confused.y"
+#line 797 "confused.y"
     { (yyval.nval) = NULL; ;}
     break;
 
   case 22:
 
 /* Line 1455 of yacc.c  */
-#line 461 "confused.y"
+#line 798 "confused.y"
     { (yyval.nval) = makeNode(NODE_ARG, (yyvsp[(1) - (1)].nval), NULL, NULL); ;}
     break;
 
   case 23:
 
 /* Line 1455 of yacc.c  */
-#line 462 "confused.y"
+#line 799 "confused.y"
     {
         /* chain args using the right pointer */
         Node *a = makeNode(NODE_ARG, (yyvsp[(3) - (3)].nval), NULL, NULL);
@@ -2084,7 +2421,7 @@ yyreduce:
   case 24:
 
 /* Line 1455 of yacc.c  */
-#line 473 "confused.y"
+#line 810 "confused.y"
     {
         Node *n = makeNode(NODE_FUNC_DEF, (yyvsp[(4) - (8)].nval), (yyvsp[(7) - (8)].nval), NULL);
         n->name  = strdup((yyvsp[(2) - (8)].sval));
@@ -2097,7 +2434,7 @@ yyreduce:
   case 25:
 
 /* Line 1455 of yacc.c  */
-#line 480 "confused.y"
+#line 817 "confused.y"
     {
         Node *n = makeNode(NODE_FUNC_DEF, (yyvsp[(4) - (8)].nval), (yyvsp[(7) - (8)].nval), NULL);
         n->name  = strdup((yyvsp[(2) - (8)].sval));
@@ -2110,7 +2447,7 @@ yyreduce:
   case 26:
 
 /* Line 1455 of yacc.c  */
-#line 492 "confused.y"
+#line 829 "confused.y"
     {
         Node *n = makeNode(NODE_FUNC_CALL, (yyvsp[(3) - (4)].nval), NULL, NULL);
         n->name = strdup((yyvsp[(1) - (4)].sval));
@@ -2121,7 +2458,7 @@ yyreduce:
   case 27:
 
 /* Line 1455 of yacc.c  */
-#line 500 "confused.y"
+#line 837 "confused.y"
     {
         /* left = start expr, middle = end expr, right = loop body */
         Node *n = makeNode(NODE_FOR, (yyvsp[(3) - (9)].nval), (yyvsp[(5) - (9)].nval), (yyvsp[(8) - (9)].nval));
@@ -2132,7 +2469,7 @@ yyreduce:
   case 28:
 
 /* Line 1455 of yacc.c  */
-#line 507 "confused.y"
+#line 844 "confused.y"
     {
         /* condition in left, loop body in middle, no right needed */
         (yyval.nval) = makeNode(NODE_WHILE, (yyvsp[(3) - (7)].nval), (yyvsp[(6) - (7)].nval), NULL);
@@ -2142,7 +2479,7 @@ yyreduce:
   case 29:
 
 /* Line 1455 of yacc.c  */
-#line 513 "confused.y"
+#line 850 "confused.y"
     {
         Node *n = makeNode(NODE_COMPOUND_ADD, (yyvsp[(3) - (4)].nval), NULL, NULL);
         n->name = strdup((yyvsp[(1) - (4)].sval));
@@ -2153,7 +2490,7 @@ yyreduce:
   case 30:
 
 /* Line 1455 of yacc.c  */
-#line 521 "confused.y"
+#line 858 "confused.y"
     {
         Node *n = makeNode(NODE_SHOW, (yyvsp[(3) - (5)].nval), NULL, NULL);
         (yyval.nval) = n;
@@ -2163,7 +2500,7 @@ yyreduce:
   case 31:
 
 /* Line 1455 of yacc.c  */
-#line 528 "confused.y"
+#line 865 "confused.y"
     {
         /* Iff with no else branch */
         (yyval.nval) = makeNode(NODE_IF, (yyvsp[(3) - (7)].nval), (yyvsp[(6) - (7)].nval), NULL);
@@ -2173,7 +2510,7 @@ yyreduce:
   case 32:
 
 /* Line 1455 of yacc.c  */
-#line 532 "confused.y"
+#line 869 "confused.y"
     {
         /* Iff with or/oriff chain */
         (yyval.nval) = makeNode(NODE_IF, (yyvsp[(3) - (8)].nval), (yyvsp[(6) - (8)].nval), (yyvsp[(8) - (8)].nval));
@@ -2183,7 +2520,7 @@ yyreduce:
   case 33:
 
 /* Line 1455 of yacc.c  */
-#line 539 "confused.y"
+#line 876 "confused.y"
     {
         /* plain or — the else branch */
         (yyval.nval) = (yyvsp[(3) - (4)].nval);
@@ -2193,7 +2530,7 @@ yyreduce:
   case 34:
 
 /* Line 1455 of yacc.c  */
-#line 543 "confused.y"
+#line 880 "confused.y"
     {
         /* oriff with no further chain */
         (yyval.nval) = makeNode(NODE_IF, (yyvsp[(3) - (7)].nval), (yyvsp[(6) - (7)].nval), NULL);
@@ -2203,7 +2540,7 @@ yyreduce:
   case 35:
 
 /* Line 1455 of yacc.c  */
-#line 547 "confused.y"
+#line 884 "confused.y"
     {
         /* oriff chained with more oriff/or */
         (yyval.nval) = makeNode(NODE_IF, (yyvsp[(3) - (8)].nval), (yyvsp[(6) - (8)].nval), (yyvsp[(8) - (8)].nval));
@@ -2213,7 +2550,7 @@ yyreduce:
   case 36:
 
 /* Line 1455 of yacc.c  */
-#line 554 "confused.y"
+#line 891 "confused.y"
     {
         Node *n  = makeNode(NODE_DECL, (yyvsp[(4) - (5)].nval), NULL, NULL);
         n->name  = strdup((yyvsp[(2) - (5)].sval));
@@ -2225,7 +2562,7 @@ yyreduce:
   case 37:
 
 /* Line 1455 of yacc.c  */
-#line 560 "confused.y"
+#line 897 "confused.y"
     {
         Node *n  = makeNode(NODE_DECL, (yyvsp[(4) - (5)].nval), NULL, NULL);
         n->name  = strdup((yyvsp[(2) - (5)].sval));
@@ -2237,119 +2574,119 @@ yyreduce:
   case 38:
 
 /* Line 1455 of yacc.c  */
-#line 569 "confused.y"
+#line 906 "confused.y"
     { (yyval.nval) = makeNum((yyvsp[(1) - (1)].ival));    ;}
     break;
 
   case 39:
 
 /* Line 1455 of yacc.c  */
-#line 570 "confused.y"
+#line 907 "confused.y"
     { (yyval.nval) = makeNum((yyvsp[(1) - (1)].fval));    ;}
     break;
 
   case 40:
 
 /* Line 1455 of yacc.c  */
-#line 571 "confused.y"
+#line 908 "confused.y"
     { (yyval.nval) = makeIdent((yyvsp[(1) - (1)].sval));  ;}
     break;
 
   case 41:
 
 /* Line 1455 of yacc.c  */
-#line 572 "confused.y"
+#line 909 "confused.y"
     { (yyval.nval) = makeNode(NODE_ADD, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 42:
 
 /* Line 1455 of yacc.c  */
-#line 573 "confused.y"
+#line 910 "confused.y"
     { (yyval.nval) = makeNode(NODE_SUB, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 43:
 
 /* Line 1455 of yacc.c  */
-#line 574 "confused.y"
+#line 911 "confused.y"
     { (yyval.nval) = makeNode(NODE_MUL, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 44:
 
 /* Line 1455 of yacc.c  */
-#line 575 "confused.y"
+#line 912 "confused.y"
     { (yyval.nval) = makeNode(NODE_DIV, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 45:
 
 /* Line 1455 of yacc.c  */
-#line 576 "confused.y"
+#line 913 "confused.y"
     { (yyval.nval) = makeNode(NODE_MOD, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 46:
 
 /* Line 1455 of yacc.c  */
-#line 577 "confused.y"
+#line 914 "confused.y"
     { (yyval.nval) = makeNode(NODE_GT,  (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 47:
 
 /* Line 1455 of yacc.c  */
-#line 578 "confused.y"
+#line 915 "confused.y"
     { (yyval.nval) = makeNode(NODE_LT,  (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 48:
 
 /* Line 1455 of yacc.c  */
-#line 579 "confused.y"
+#line 916 "confused.y"
     { (yyval.nval) = makeNode(NODE_EQ,  (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 49:
 
 /* Line 1455 of yacc.c  */
-#line 580 "confused.y"
+#line 917 "confused.y"
     { (yyval.nval) = makeNode(NODE_NEQ, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 50:
 
 /* Line 1455 of yacc.c  */
-#line 581 "confused.y"
+#line 918 "confused.y"
     { (yyval.nval) = makeNode(NODE_GEQ, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 51:
 
 /* Line 1455 of yacc.c  */
-#line 582 "confused.y"
+#line 919 "confused.y"
     { (yyval.nval) = makeNode(NODE_LEQ, (yyvsp[(1) - (3)].nval), NULL, (yyvsp[(3) - (3)].nval)); ;}
     break;
 
   case 52:
 
 /* Line 1455 of yacc.c  */
-#line 583 "confused.y"
+#line 920 "confused.y"
     { (yyval.nval) = (yyvsp[(1) - (1)].nval); ;}
     break;
 
   case 53:
 
 /* Line 1455 of yacc.c  */
-#line 584 "confused.y"
+#line 921 "confused.y"
     { (yyval.nval) = (yyvsp[(2) - (3)].nval); ;}
     break;
 
 
 
 /* Line 1455 of yacc.c  */
-#line 2353 "confused.tab.c"
+#line 2690 "confused.tab.c"
       default: break;
     }
   YY_SYMBOL_PRINT ("-> $$ =", yyr1[yyn], &yyval, &yyloc);
@@ -2561,7 +2898,7 @@ yyreturn:
 
 
 /* Line 1675 of yacc.c  */
-#line 587 "confused.y"
+#line 924 "confused.y"
 
 
 int yyerror(char *msg) {
@@ -2570,14 +2907,21 @@ int yyerror(char *msg) {
 }
 
 int main() {
-    push_frame("global");   /* create global scope for variables */
+    push_frame("global");
     printf("=== Parsing ===\n");
-    yyparse();              /* Phase 1: build the AST tree */
+    yyparse();
     printf("=== Executing ===\n");
     if (root == NULL)
         printf("Error: root is NULL — nothing was parsed!\n");
     else
-        execute(root);      /* Phase 2: walk the tree and run it */
+        execute(root);
+    
+    /* ── NEW: Phase 3 — TAC Generation ── */
+    printf("\n=== Three Address Code ===\n");
+    if (root != NULL)
+        gen_stmt(root);
+    printf("=== End TAC ===\n");
+
     printf("=== Done ===\n");
     return 0;
 }

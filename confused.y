@@ -357,6 +357,343 @@ void execute(Node *n) {
         default: break;
     }
 }
+
+/* ══════════════════════════════
+   TAC HELPERS
+   ══════════════════════════════ */
+
+int temp_count  = 0;   /* counts t1, t2, t3 ... */
+int label_count = 0;   /* counts L1, L2, L3 ... */
+
+/* Returns a new unique temporary name like "t1", "t2" etc.
+   malloc gives it its own memory so it persists after the function returns. */
+char *new_temp() {
+    char *buf = malloc(16);
+    sprintf(buf, "t%d", ++temp_count);
+    return buf;
+}
+
+/* Returns a new unique label name like "L1", "L2" etc.
+   Used for Iff, wlp, flp branch targets. */
+char *new_label() {
+    char *buf = malloc(16);
+    sprintf(buf, "L%d", ++label_count);
+    return buf;
+}
+
+/* ══════════════════════════════
+   gen() — TAC for EXPRESSIONS
+   Takes a node, prints TAC instructions for everything inside it,
+   and returns a string: either a variable name, a literal, or a
+   new temporary that holds the result.
+   ══════════════════════════════ */
+
+/* Forward declaration so gen() and gen_stmt() can call each other */
+void gen_stmt(Node *n);
+
+char *gen(Node *n) {
+    if (n == NULL) return strdup("0");
+
+    switch (n->type) {
+
+        /* ── LEAF NODES ── no instruction needed, just return the name/value */
+        case NODE_NUM: {
+            /* It's a literal number like 3 or 5.0
+               We format it as a string and return it directly.
+               No temporary needed — the value is already "known". */
+            char *buf = malloc(32);
+            if (n->value == (int)n->value)
+                sprintf(buf, "%d", (int)n->value);
+            else
+                sprintf(buf, "%.2f", n->value);
+            return buf;
+        }
+
+        case NODE_IDENT:
+            /* It's a variable like x or result.
+               The "address" of this value is just the variable's name.
+               Return it directly — no instruction, no temporary. */
+            return strdup(n->name);
+
+        /* ── ARITHMETIC NODES ── 
+           Pattern is always: gen left, gen right, make temp, print instruction, return temp */
+        case NODE_ADD: {
+            char *l = gen(n->left);   /* generate TAC for left side  */
+            char *r = gen(n->right);  /* generate TAC for right side */
+            char *t = new_temp();     /* fresh bucket for the result  */
+            printf("%s = %s + %s\n", t, l, r);
+            return t;
+        }
+        case NODE_SUB: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s - %s\n", t, l, r);
+            return t;
+        }
+        case NODE_MUL: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s * %s\n", t, l, r);
+            return t;
+        }
+        case NODE_DIV: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s / %s\n", t, l, r);
+            return t;
+        }
+        case NODE_MOD: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s %% %s\n", t, l, r);  /* %% prints a literal % */
+            return t;
+        }
+
+        /* ── RELATIONAL NODES ──
+           These produce a 0 or 1 result, stored in a temporary.
+           Used as conditions in Iff and wlp. */
+        case NODE_GT: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s > %s\n", t, l, r);
+            return t;
+        }
+        case NODE_LT: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s < %s\n", t, l, r);
+            return t;
+        }
+        case NODE_EQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s == %s\n", t, l, r);
+            return t;
+        }
+        case NODE_NEQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s != %s\n", t, l, r);
+            return t;
+        }
+        case NODE_GEQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s >= %s\n", t, l, r);
+            return t;
+        }
+        case NODE_LEQ: {
+            char *l = gen(n->left);
+            char *r = gen(n->right);
+            char *t = new_temp();
+            printf("%s = %s <= %s\n", t, l, r);
+            return t;
+        }
+
+        /* ── FUNCTION CALL ──
+           TAC convention: push each argument with "param", then "call".
+           The return value lands in a new temporary. */
+        case NODE_FUNC_CALL: {
+            /* First, generate TAC for every argument and emit param instructions.
+               Arguments are chained as NODE_ARG nodes via the right pointer. */
+            Node *arg = n->left;
+            while (arg != NULL) {
+                char *a = gen(arg->left);   /* evaluate the argument expression */
+                printf("param %s\n", a);    /* push it onto the param list */
+                arg = arg->right;
+            }
+            /* Now emit the call instruction and capture the return value */
+            char *t = new_temp();
+            printf("%s = call %s\n", t, n->name);
+            return t;
+        }
+
+        default:
+            return strdup("?");
+    }
+}
+
+/* ══════════════════════════════
+   gen_stmt() — TAC for STATEMENTS
+   Walks statement nodes and emits TAC.
+   Returns nothing — statements are actions, not values.
+   ══════════════════════════════ */
+void gen_stmt(Node *n) {
+    if (n == NULL) return;
+
+    switch (n->type) {
+
+        /* NODE_SEQ is the backbone of the program — a chain of statements.
+           Just recurse left then right, same as execute() does. */
+        case NODE_SEQ:
+            gen_stmt(n->left);
+            gen_stmt(n->right);
+            break;
+
+        /* Declaration: evaluate the right-hand expression, assign to variable.
+           Example:  In result @ myAdd(3 $ 5)#
+           TAC:      param 3
+                     param 5
+                     t1 = call myAdd
+                     result = t1              */
+        case NODE_DECL: {
+            char *t = gen(n->left);        /* generate TAC for the expression */
+            printf("%s = %s\n", n->name, t); /* assign result to the variable */
+            break;
+        }
+
+        /* Show(): evaluate the expression, then print it.
+           Example:  Show(result)#
+           TAC:      t2 = result
+                     print t2               */
+        case NODE_SHOW: {
+            char *t = gen(n->left);
+            printf("print %s\n", t);
+            break;
+        }
+
+        /* Compound assignment: x @@ expr  means  x = x + expr
+           TAC:  t1 = x + expr_result
+                 x  = t1                   */
+        case NODE_COMPOUND_ADD: {
+            char *t_val = gen(n->left);     /* generate the right-hand expr */
+            char *t_res = new_temp();
+            printf("%s = %s + %s\n", t_res, n->name, t_val);
+            printf("%s = %s\n", n->name, t_res);
+            break;
+        }
+
+        /* Return statement inside a function.
+           TAC:  t1 = expr_result
+                 return t1                 */
+        case NODE_RETURN: {
+            char *t = gen(n->left);
+            printf("return %s\n", t);
+            break;
+        }
+
+        /* Function definition: print a label marking where the function starts,
+           then generate TAC for the body.
+           NODE_FUNC_DEF itself doesn't execute — but in TAC we want to show
+           the function's code as a labeled section. */
+        case NODE_FUNC_DEF: {
+            printf("\n; --- function %s ---\n", n->name);
+            /* Print parameter names so the TAC is readable */
+            FuncEntry *fn = lookup_func(n->name);
+            if (fn) {
+                for (int i = 0; i < fn->param_count; i++)
+                    printf("; param %s\n", fn->param_names[i]);
+            }
+            gen_stmt(n->middle);   /* middle child = function body (the block) */
+            printf("; --- end %s ---\n\n", n->name);
+            break;
+        }
+
+        /* Iff statement — this is where labels become essential.
+           Pattern:
+               <condition TAC>
+               if t1 goto L1
+               goto L2
+           L1:
+               <true body TAC>
+           L2:                         */
+        case NODE_IF: {
+            char *t   = gen(n->left);     /* generate condition expression TAC */
+            char *l_true = new_label();   /* label for the true branch */
+            char *l_end  = new_label();   /* label for after the whole Iff */
+
+            printf("if %s goto %s\n", t, l_true);
+            printf("goto %s\n", l_end);
+            printf("%s:\n", l_true);
+            gen_stmt(n->middle);           /* true branch body */
+            printf("%s:\n", l_end);
+            if (n->right != NULL)
+                gen_stmt(n->right);        /* or/oriff chain if it exists */
+            break;
+        }
+
+        /* wlp (while loop).
+           Pattern:
+           L1:                    <- loop back here each iteration
+               <condition TAC>
+               if t1 goto L2      <- enter body if condition true
+               goto L3            <- exit loop if condition false
+           L2:
+               <body TAC>
+               goto L1            <- always jump back to check condition
+           L3:                    <- loop exits here               */
+        case NODE_WHILE: {
+            char *l_start = new_label();   /* top of loop — re-evaluated each time */
+            char *l_body  = new_label();   /* enter body */
+            char *l_end   = new_label();   /* exit loop  */
+
+            printf("%s:\n", l_start);
+            char *t = gen(n->left);        /* condition expression */
+            printf("if %s goto %s\n", t, l_body);
+            printf("goto %s\n", l_end);
+            printf("%s:\n", l_body);
+            gen_stmt(n->middle);           /* loop body */
+            printf("goto %s\n", l_start); /* jump back to re-check condition */
+            printf("%s:\n", l_end);
+            break;
+        }
+
+        /* flp (range-based for loop).
+           We expand it into TAC using i as the loop variable.
+           Pattern:
+               i = start
+           L1:
+               t1 = i < end
+               if t1 goto L2
+               goto L3
+           L2:
+               <body TAC>
+               i = i + 1
+               goto L1
+           L3:                                                    */
+        case NODE_FOR: {
+            char *start   = gen(n->left);    /* start expression */
+            char *end_val = gen(n->middle);  /* end expression   */
+            char *l_start = new_label();
+            char *l_body  = new_label();
+            char *l_end   = new_label();
+
+            printf("i = %s\n", start);        /* initialize loop variable */
+            printf("%s:\n", l_start);
+            char *t_cond = new_temp();
+            printf("%s = i < %s\n", t_cond, end_val);  /* check i < end */
+            printf("if %s goto %s\n", t_cond, l_body);
+            printf("goto %s\n", l_end);
+            printf("%s:\n", l_body);
+            gen_stmt(n->right);                /* loop body */
+            char *t_inc = new_temp();
+            printf("%s = i + 1\n", t_inc);     /* increment i */
+            printf("i = %s\n", t_inc);
+            printf("goto %s\n", l_start);
+            printf("%s:\n", l_end);
+            break;
+        }
+
+        case NODE_FUNC_CALL:
+            /* A standalone function call statement — generate it as an expression
+               but discard the return value since nobody is using it. */
+            gen(n);
+            break;
+
+        default:
+            break;
+    }
+}
+
 %}
 
 
@@ -592,14 +929,21 @@ int yyerror(char *msg) {
 }
 
 int main() {
-    push_frame("global");   /* create global scope for variables */
+    push_frame("global");
     printf("=== Parsing ===\n");
-    yyparse();              /* Phase 1: build the AST tree */
+    yyparse();
     printf("=== Executing ===\n");
     if (root == NULL)
         printf("Error: root is NULL — nothing was parsed!\n");
     else
-        execute(root);      /* Phase 2: walk the tree and run it */
+        execute(root);
+    
+    /* ── NEW: Phase 3 — TAC Generation ── */
+    printf("\n=== Three Address Code ===\n");
+    if (root != NULL)
+        gen_stmt(root);
+    printf("=== End TAC ===\n");
+
     printf("=== Done ===\n");
     return 0;
 }
