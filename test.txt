@@ -1,9 +1,5 @@
-In x @ 10#
-In y @ 3#
-In sum @ x add y#
-Show(sum)#
-Iff (x grt y) {
-    Show(x)#
-} or {
-    Show(y)#
+In addd(In a $ In b) {
+    return a add b#
 }
+In result @ addd(3 $ 5)#
+Show(result)#

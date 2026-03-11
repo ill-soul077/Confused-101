@@ -85,41 +85,10 @@ void insertFloat(char *name, char *type, float value) {
 }
 
 /* ══════════════════════════════
-   FUNCTION TABLE
-   ══════════════════════════════ */
-typedef struct {
-    char  name[64];
-    char  return_type[16];
-    char  param_names[10][64];
-    char  param_types[10][16];
-    int   param_count;
-    struct Node *body;
-} FuncEntry;
-
-FuncEntry func_table[50];
-int func_count = 0;
-
-void insert_func(char *name, char *return_type, struct Node *params, struct Node *body) {
-    if (func_count >= 50) { printf("Function table full!\n"); return; }
-    strncpy(func_table[func_count].name,        name,        64);
-    strncpy(func_table[func_count].return_type, return_type, 16);
-    func_table[func_count].body        = body;
-    func_table[func_count].param_count = 0;
-    func_count++;
-}
-
-FuncEntry *lookup_func(char *name) {
-    for (int i = 0; i < func_count; i++)
-        if (strcmp(func_table[i].name, name) == 0)
-            return &func_table[i];
-    return NULL;
-}
-
-/* ══════════════════════════════
    AST NODE TYPES
    ══════════════════════════════ */
 typedef enum {
-    NODE_IF, NODE_WHILE,
+    NODE_IF, NODE_WHILE, NODE_FOR,
     NODE_SEQ, NODE_DECL,
     NODE_ADD, NODE_SUB, NODE_MUL, NODE_DIV, NODE_MOD,
     NODE_GT,  NODE_LT,  NODE_EQ,  NODE_NEQ,
@@ -143,6 +112,50 @@ typedef struct Node {
 } Node;
 
 Node *root = NULL;
+
+/* ══════════════════════════════
+   FUNCTION TABLE
+   ══════════════════════════════ */
+typedef struct {
+    char  name[64];
+    char  return_type[16];
+    char  param_names[10][64];
+    char  param_types[10][16];
+    int   param_count;
+    struct Node *body;
+} FuncEntry;
+
+FuncEntry func_table[50];
+int func_count = 0;
+
+void insert_func(char *name, char *return_type, struct Node *params, struct Node *body) {
+    if (func_count >= 50) { printf("Function table full!\n"); return; }
+    strncpy(func_table[func_count].name,        name,        64);
+    strncpy(func_table[func_count].return_type, return_type, 16);
+    func_table[func_count].body        = body;
+    func_table[func_count].param_count = 0;
+    /* walk the param chain and store each parameter */
+    struct Node *p = params;
+    while (p != NULL) {
+        int i = func_table[func_count].param_count;
+        strncpy(func_table[func_count].param_names[i], p->name, 64);
+        strncpy(func_table[func_count].param_types[i],
+                p->value == 0 ? "int" : "float", 16);
+        func_table[func_count].param_count++;
+        p = p->right;
+    }
+    func_count++;
+}
+
+
+FuncEntry *lookup_func(char *name) {
+    for (int i = 0; i < func_count; i++)
+        if (strcmp(func_table[i].name, name) == 0)
+            return &func_table[i];
+    return NULL;
+}
+
+
 
 /* ══════════════════════════════
    NODE CONSTRUCTORS
@@ -173,6 +186,10 @@ Node *makeIdent(char *name) {
 /* ══════════════════════════════
    EVAL
    ══════════════════════════════ */
+void execute(Node *n);  /* forward declaration */
+
+
+
 float eval(Node *n) {
     if (n == NULL) return 0;
     switch (n->type) {
@@ -203,6 +220,29 @@ float eval(Node *n) {
         case NODE_AND: return (int)eval(n->left) & (int)eval(n->right);
         case NODE_OR:  return (int)eval(n->left) | (int)eval(n->right);
         case NODE_XOR: return (int)eval(n->left) ^ (int)eval(n->right);
+        case NODE_FUNC_CALL: {
+            FuncEntry *fn = lookup_func(n->name);
+            if (fn == NULL) {
+                printf("Error: Undefined function '%s'.\n", n->name);
+                return 0;
+            }
+            push_frame(n->name);
+            /* bind arguments to parameter names */
+            Node *arg = n->left;
+            for (int i = 0; i < fn->param_count && arg != NULL; i++) {
+                float val = eval(arg->left);
+                if (strcmp(fn->param_types[i], "float") == 0)
+                    insertFloat(fn->param_names[i], "float", val);
+                else
+                    insert(fn->param_names[i], "int", (int)val);
+                arg = arg->right;
+            }
+            execute(fn->body);
+            float ret = call_stack->return_value;
+            pop_frame();
+            printf("Function '%s' returned: %.2f\n", n->name, ret);
+            return ret;
+        }
         default: return 0;
     }
 }
@@ -210,7 +250,7 @@ float eval(Node *n) {
 /* ══════════════════════════════
    EXECUTE (forward declaration)
    ══════════════════════════════ */
-void execute(Node *n);
+
 
 void execute(Node *n) {
     if (n == NULL) return;
@@ -281,6 +321,20 @@ void execute(Node *n) {
             break;
         }
 
+        case NODE_FOR: {
+            int start = (int)eval(n->left);
+            int end   = (int)eval(n->middle);
+            printf("flp starting: %d to %d\n", start, end);
+            /* automatically create the loop variable i in the current frame */
+            insert("i", "int", start);
+            Symbol *i_sym = get_symbol("i");
+            for (i_sym->value.ival = start; i_sym->value.ival < end; i_sym->value.ival++) {
+                execute(n->right);   /* run the loop body */
+            }
+            printf("flp done\n");
+            break;
+        }
+
         case NODE_FUNC_DEF:
             break; /* already stored in func_table during parsing */
 
@@ -341,7 +395,10 @@ void execute(Node *n) {
 %left MUL DIV MOD
 
 
+
 %type <nval> program statement expr declaration show_stmt iff_stmt or_chain
+             wlp_stmt flp_stmt compound_stmt func_def func_call arg_list param_list param return_stmt block
+
 
 %%
 
@@ -352,10 +409,114 @@ program
     ;
 
 statement
-    : declaration           { $$ = $1; }
-    | show_stmt             { $$ = $1; }
-    | iff_stmt              { $$ = $1; }
+    : declaration        { $$ = $1; }
+    | show_stmt          { $$ = $1; }
+    | iff_stmt           { $$ = $1; }
+    | wlp_stmt           { $$ = $1; }
+    | flp_stmt           { $$ = $1; }
+    | compound_stmt      { $$ = $1; }
+    | func_def           { $$ = $1; }
+    | return_stmt        { $$ = $1; }
+    | func_call HASH     { $$ = $1; }  /* function call as a standalone statement */
     ;
+
+return_stmt
+    : RETURN expr HASH {
+        $$ = makeNode(NODE_RETURN, $2, NULL, NULL);
+    }
+    ;
+block
+    : statement              { $$ = $1; }
+    | block statement        { $$ = makeNode(NODE_SEQ, $1, NULL, $2); }
+    ;  
+param
+    : IN IDENT {
+        Node *n = makeNode(NODE_PARAM, NULL, NULL, NULL);
+        n->name  = strdup($2);
+        n->value = 0;   /* 0 = int parameter */
+        $$ = n;
+    }
+    | FLT IDENT {
+        Node *n = makeNode(NODE_PARAM, NULL, NULL, NULL);
+        n->name  = strdup($2);
+        n->value = 1;   /* 1 = float parameter */
+        $$ = n;
+    }
+    ;
+
+param_list
+    : /* empty */            { $$ = NULL; }
+    | param                  { $$ = $1; }
+    | param_list DOLLAR param {
+        /* chain params using the right pointer */
+        Node *p = $1;
+        while (p->right != NULL) p = p->right;
+        p->right = $3;
+        $$ = $1;
+    }
+    ;
+
+arg_list
+    : /* empty */            { $$ = NULL; }
+    | expr                   { $$ = makeNode(NODE_ARG, $1, NULL, NULL); }
+    | arg_list DOLLAR expr   {
+        /* chain args using the right pointer */
+        Node *a = makeNode(NODE_ARG, $3, NULL, NULL);
+        Node *p = $1;
+        while (p->right != NULL) p = p->right;
+        p->right = a;
+        $$ = $1;
+    }
+    ;
+
+func_def
+    : IN IDENT '(' param_list ')' '{' block '}' {
+        Node *n = makeNode(NODE_FUNC_DEF, $4, $7, NULL);
+        n->name  = strdup($2);
+        n->value = 0;
+        insert_func($2, "int", $4, $7);
+        $$ = n;
+    }
+    | FLT IDENT '(' param_list ')' '{' block '}' {
+        Node *n = makeNode(NODE_FUNC_DEF, $4, $7, NULL);
+        n->name  = strdup($2);
+        n->value = 1;
+        insert_func($2, "float", $4, $7);
+        $$ = n;
+    }
+    ;
+
+  
+
+func_call
+    : IDENT '(' arg_list ')' {
+        Node *n = makeNode(NODE_FUNC_CALL, $3, NULL, NULL);
+        n->name = strdup($1);
+        $$ = n;
+    }
+    ;
+
+flp_stmt
+    : FLP '(' expr COLON expr ')' '{' block '}' {
+        /* left = start expr, middle = end expr, right = loop body */
+        Node *n = makeNode(NODE_FOR, $3, $5, $8);
+        $$ = n;
+    }
+    ;
+wlp_stmt
+    : WLP '(' expr ')' '{' block '}' {
+        /* condition in left, loop body in middle, no right needed */
+        $$ = makeNode(NODE_WHILE, $3, $6, NULL);
+    }
+    ;
+compound_stmt
+    : IDENT COMPOUNDADD expr HASH {
+        Node *n = makeNode(NODE_COMPOUND_ADD, $3, NULL, NULL);
+        n->name = strdup($1);
+        $$ = n;
+    }
+    ;    
+
 show_stmt
     : SHOW '(' expr ')' HASH {
         Node *n = makeNode(NODE_SHOW, $3, NULL, NULL);
@@ -364,26 +525,26 @@ show_stmt
     ;
 
 iff_stmt
-    : IFF '(' expr ')' '{' program '}' {
+    : IFF '(' expr ')' '{' block '}' {
         /* Iff with no else branch */
         $$ = makeNode(NODE_IF, $3, $6, NULL);
     }
-    | IFF '(' expr ')' '{' program '}' or_chain {
+    | IFF '(' expr ')' '{' block '}' or_chain {
         /* Iff with or/oriff chain */
         $$ = makeNode(NODE_IF, $3, $6, $8);
     }
     ;
 
 or_chain
-    : OR '{' program '}' {
+    : OR '{' block '}' {
         /* plain or — the else branch */
         $$ = $3;
     }
-    | ORIFF '(' expr ')' '{' program '}' {
+    | ORIFF '(' expr ')' '{' block '}' {
         /* oriff with no further chain */
         $$ = makeNode(NODE_IF, $3, $6, NULL);
     }
-    | ORIFF '(' expr ')' '{' program '}' or_chain {
+    | ORIFF '(' expr ')' '{' block '}' or_chain {
         /* oriff chained with more oriff/or */
         $$ = makeNode(NODE_IF, $3, $6, $8);
     }
@@ -419,6 +580,8 @@ expr
     | expr NEQL expr{ $$ = makeNode(NODE_NEQ, $1, NULL, $3); }
     | expr EQGRT expr { $$ = makeNode(NODE_GEQ, $1, NULL, $3); }
     | expr EQSML expr { $$ = makeNode(NODE_LEQ, $1, NULL, $3); }
+    | func_call  { $$ = $1; }
+    | '(' expr ')'  { $$ = $2; }
     ;
 
 %%

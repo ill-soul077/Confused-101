@@ -103,7 +103,7 @@ typedef union YYSTYPE
 {
 
 /* Line 1676 of yacc.c  */
-#line 310 "confused.y"
+#line 364 "confused.y"
 
     char        *sval;
     int          ival;
