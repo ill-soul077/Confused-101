@@ -1,0 +1,9 @@
+In x @ 10#
+In y @ 3#
+In sum @ x add y#
+Show(sum)#
+Iff (x grt y) {
+    Show(x)#
+} or {
+    Show(y)#
+}

@@ -1,0 +1,15 @@
+In x @ 10#
+In y @ 5#
+
+
+In x @ 10#
+In y @ 3#
+In sum @ x add y#
+In diff @ x sub y#
+In prod @ x mul y#
+In quot @ x div y#
+In rem @ x mod y#
+flt pi @ 3.14#
+flt area @ pi mul 5#
+In bad @ 3.14#
+
