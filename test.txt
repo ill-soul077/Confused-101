@@ -1,5 +1,3 @@
-In addd(In a $ In b) {
-    return a add b#
-}
-In result @ addd(3 $ 5)#
+In x @ 2#
+In result @ Exp(x $ 8)#
 Show(result)#

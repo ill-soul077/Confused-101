@@ -32,7 +32,7 @@ ID      [a-zA-Z_][a-zA-Z0-9_]*
 "line"          { return LINE;        }
 "takepart"      { return TAKEPART;    }
 "MY_ARRAY"      { return MY_ARRAY;    }
-"Exponential"   { return EXPONENTIAL; }
+"Exp"           { return EXPONENTIAL; }
 "Inc"           { return INC;         }
 "Nainai"        { return NAINAI;      }
 "lastadd"       { return LASTADD;     }

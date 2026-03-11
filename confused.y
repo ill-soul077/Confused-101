@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>  /* for pow() in exponential operator */
 extern int yylex();
+extern FILE *yyin;
 int yyerror(char *msg);
 
 /* ══════════════════════════════
@@ -99,7 +101,7 @@ typedef enum {
     NODE_RETURN,
     NODE_ARG, NODE_PARAM,
     NODE_SHOW, NODE_ASK,
-    NODE_COMPOUND_ADD,
+    NODE_COMPOUND_ADD,NODE_EXPONENTIAL
 } NodeType;
 
 typedef struct Node {
@@ -243,6 +245,11 @@ float eval(Node *n) {
             printf("Function '%s' returned: %.2f\n", n->name, ret);
             return ret;
         }
+        case NODE_EXPONENTIAL: {
+            float base = eval(n->left);   /* evaluate the base expression     */
+            float exp  = eval(n->right);  /* evaluate the exponent expression */
+            return pow(base, exp);        /* call C's math library pow()      */
+        }
         default: return 0;
     }
 }
@@ -271,6 +278,10 @@ void execute(Node *n) {
             } else if (n->value == 1) {
                 insertFloat(n->name, "float", val);
                 printf("Stored: %s = %.2f (type: float)\n", n->name, val);
+            } else if (n->value == 2) {
+                int bval = (val != 0) ? 1 : 0;
+                insert(n->name, "bool", bval);
+                printf("Stored: %s = %s (type: bool)\n", n->name, bval ? "true" : "false");
             }
             break;
         }
@@ -332,6 +343,29 @@ void execute(Node *n) {
                 execute(n->right);   /* run the loop body */
             }
             printf("flp done\n");
+            break;
+        }
+
+        case NODE_ASK: {
+            /* Look up the variable in the symbol table first.
+            We need to know its type so we can call scanf correctly. */
+            Symbol *sym = get_symbol(n->name);
+            if (sym == NULL) {
+                printf("Error: Variable '%s' not declared. Declare it before using Ask().\n", n->name);
+                break;
+            }
+            printf("Enter value for %s: ", n->name);   /* prompt the user */
+            
+            if (strcmp(sym->type, "float") == 0) {
+                scanf("%f", &sym->value.fval);          /* read directly into the symbol's float slot */
+            } else {
+                scanf("%d", &sym->value.ival);          /* read directly into the symbol's int slot */
+            }
+            printf("Read: %s = ", n->name);
+            if (strcmp(sym->type, "float") == 0)
+                printf("%.2f\n", sym->value.fval);
+            else
+                printf("%d\n", sym->value.ival);
             break;
         }
 
@@ -496,6 +530,14 @@ char *gen(Node *n) {
             char *r = gen(n->right);
             char *t = new_temp();
             printf("%s = %s <= %s\n", t, l, r);
+            return t;
+        }
+
+        case NODE_EXPONENTIAL: {
+            char *base = gen(n->left);    /* generate TAC for the base     */
+            char *exp  = gen(n->right);   /* generate TAC for the exponent */
+            char *t    = new_temp();
+            printf("%s = %s ^ %s\n", t, base, exp);  /* ^ is TAC notation for power */
             return t;
         }
 
@@ -688,6 +730,14 @@ void gen_stmt(Node *n) {
                but discard the return value since nobody is using it. */
             gen(n);
             break;
+        case NODE_ASK: {
+            /* TAC for input is simply a 'read' instruction targeting the variable.
+            This is the TAC equivalent of scanf — a backend would translate
+            this into a system call or library call to read from stdin. */
+            printf("read %s\n", n->name);
+            break;
+        }
+
 
         default:
             break;
@@ -734,7 +784,7 @@ void gen_stmt(Node *n) {
 
 
 %type <nval> program statement expr declaration show_stmt iff_stmt or_chain
-             wlp_stmt flp_stmt compound_stmt func_def func_call arg_list param_list param return_stmt block
+             wlp_stmt flp_stmt compound_stmt func_def func_call arg_list param_list param return_stmt block ask_stmt
 
 
 %%
@@ -754,8 +804,17 @@ statement
     | compound_stmt      { $$ = $1; }
     | func_def           { $$ = $1; }
     | return_stmt        { $$ = $1; }
+    | ask_stmt           { $$ = $1; }
     | func_call HASH     { $$ = $1; }  /* function call as a standalone statement */
     ;
+
+ask_stmt
+    : ASK '(' IDENT ')' HASH {
+        Node *n = makeNode(NODE_ASK, NULL, NULL, NULL);
+        n->name = strdup($3);
+        $$ = n;
+    }
+    ;    
 
 return_stmt
     : RETURN expr HASH {
@@ -900,11 +959,19 @@ declaration
         n->value = 1;   /* 1 = float */
         $$ = n;
     }
+    | BOOL IDENT AT expr HASH {
+    Node *n  = makeNode(NODE_DECL, $4, NULL, NULL);
+    n->name  = strdup($2);
+    n->value = 2;   /* 2 = bool flag */
+    $$ = n;
+    }
     ;
 
 expr
     : INT_LIT       { $$ = makeNum($1);    }
     | FLOAT_LIT     { $$ = makeNum($1);    }
+    | TRUE_LIT      { $$ = makeNum(1);     }
+    | FALSE_LIT     { $$ = makeNum(0);     }
     | IDENT         { $$ = makeIdent($1);  }
     | expr ADD expr { $$ = makeNode(NODE_ADD, $1, NULL, $3); }
     | expr SUB expr { $$ = makeNode(NODE_SUB, $1, NULL, $3); }
@@ -919,6 +986,7 @@ expr
     | expr EQSML expr { $$ = makeNode(NODE_LEQ, $1, NULL, $3); }
     | func_call  { $$ = $1; }
     | '(' expr ')'  { $$ = $2; }
+    | EXPONENTIAL '(' expr DOLLAR expr ')' { $$ = makeNode(NODE_EXPONENTIAL, $3, NULL, $5);}
     ;
 
 %%
@@ -928,7 +996,19 @@ int yyerror(char *msg) {
     return 0;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    /* If a filename argument was given, open it and point the lexer at it.
+       This frees stdin so that Ask() / scanf() can read from the keyboard. */
+    if (argc > 1) {
+        FILE *f = fopen(argv[1], "r");
+        if (f == NULL) {
+            printf("Error: Cannot open file '%s'\n", argv[1]);
+            return 1;
+        }
+        yyin = f;   /* yyin is Flex's input file pointer — redirect it to our file */
+    }
+    /* If no argument given, fall back to stdin as before */
+
     push_frame("global");
     printf("=== Parsing ===\n");
     yyparse();
@@ -937,13 +1017,11 @@ int main() {
         printf("Error: root is NULL — nothing was parsed!\n");
     else
         execute(root);
-    
-    /* ── NEW: Phase 3 — TAC Generation ── */
+
     printf("\n=== Three Address Code ===\n");
     if (root != NULL)
         gen_stmt(root);
     printf("=== End TAC ===\n");
-
     printf("=== Done ===\n");
     return 0;
 }
