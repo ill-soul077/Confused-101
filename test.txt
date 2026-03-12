@@ -1,4 +1,6 @@
-In x @ 5#
-Inc (x)#
-Inc (x)#
-Show(x)#
+In x @ 2#
+incident(x) {
+    check 1 : { Show("one")# }
+    check 2 : { Show("two")# }
+    nop      { Show("other")# }
+}

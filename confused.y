@@ -130,6 +130,9 @@ typedef enum {
     NODE_PUSH,        /* lastadd(name $ expr)#  */
     NODE_POP,         /* lastdrag(name)#        */
     NODE_EMPTY_CHECK, /* Nainai(name)           */
+    NODE_STRING_LIT,
+    NODE_SWITCH,
+    NODE_CASE,
 } NodeType;
 
 typedef struct Node {
@@ -290,6 +293,7 @@ float eval(Node *n) {
                 return (sym->que_count == 0) ? 1 : 0;
             return 0;
         }
+
         default: return 0;
     }
 }
@@ -350,6 +354,12 @@ void execute(Node *n) {
         }
 
         case NODE_SHOW: {
+            /* Check for string literal FIRST — eval() cannot handle strings */
+            if (n->left && n->left->type == NODE_STRING_LIT) {
+                printf("%s\n", n->left->name);
+                break;
+            }
+            /* For everything else, eval() gives us the numeric value */
             float val = eval(n->left);
             if (n->left && n->left->type == NODE_IDENT) {
                 Symbol *sym = get_symbol(n->left->name);
@@ -358,7 +368,6 @@ void execute(Node *n) {
                 else
                     printf("%d\n", (int)val);
             } else {
-                /* check if result is a whole number */
                 if (val == (int)val) printf("%d\n", (int)val);
                 else                 printf("%.2f\n", val);
             }
@@ -547,6 +556,27 @@ void execute(Node *n) {
             }
             break;
         }
+
+        case NODE_SWITCH: {
+            float switch_val = eval(n->left);
+            Node *c = n->middle;
+            int matched = 0;
+            while (c != NULL) {
+                /* middle == NULL means this is the nop/default case */
+                if (c->middle == NULL || eval(c->middle) == switch_val) {
+                    execute(c->left);
+                    matched = 1;
+                    break;
+                }
+                c = c->right;
+            }
+            if (!matched)
+                printf("incident: no match for %.2f\n", switch_val);
+            break;
+        }
+
+        case NODE_CASE:
+            break; /* never executed directly — always walked via NODE_SWITCH */
 
         default: break;
     }
@@ -763,11 +793,11 @@ void gen_stmt(Node *n) {
            Example:  Show(result)#
            TAC:      t2 = result
                      print t2               */
-        case NODE_SHOW: {
-            char *t = gen(n->left);
-            printf("print %s\n", t);
-            break;
-        }
+        // case NODE_SHOW: {
+        //     char *t = gen(n->left);
+        //     printf("print %s\n", t);
+        //     break;
+        // }
 
         /* Compound assignment: x @@ expr  means  x = x + expr
            TAC:  t1 = x + expr_result
@@ -918,6 +948,15 @@ void gen_stmt(Node *n) {
                 printf("enqueue %s %s\n", n->name, val);
             break;
         }
+        case NODE_SHOW: {
+            if (n->left && n->left->type == NODE_STRING_LIT) {
+                printf("print_str \"%s\"\n", n->left->name);
+                break;
+            }
+            char *t = gen(n->left);
+            printf("print %s\n", t);
+            break;
+        }
 
 
 
@@ -931,6 +970,52 @@ void gen_stmt(Node *n) {
             printf("%s = %s\n", n->name, t);
             break;
         }    
+        case NODE_SWITCH: {
+            char *sv    = gen(n->left);   /* evaluate switch expr once */
+            char *l_end = new_label();
+
+            /* Two-pass approach:
+            Pass 1 — generate condition checks and collect case labels.
+            Pass 2 — emit each block under its label. */
+            char *case_labels[50];
+            int   case_count = 0;
+            char *l_default  = NULL;
+
+            /* Pass 1 */
+            Node *c = n->middle;
+            while (c != NULL) {
+                if (c->middle == NULL) {
+                    /* nop/default — no condition check, just a label */
+                    l_default = new_label();
+                    case_labels[case_count++] = l_default;
+                } else {
+                    char *cv = gen(c->middle);
+                    char *t  = new_temp();
+                    printf("%s = %s == %s\n", t, sv, cv);
+                    char *lbl = new_label();
+                    printf("if %s goto %s\n", t, lbl);
+                    case_labels[case_count++] = lbl;
+                }
+                c = c->right;
+            }
+            /* Fall-through if nothing matched */
+            if (l_default) printf("goto %s\n", l_default);
+            else           printf("goto %s\n", l_end);
+
+            /* Pass 2 */
+            c = n->middle;
+            for (int i = 0; i < case_count; i++) {
+                printf("%s:\n", case_labels[i]);
+                gen_stmt(c->left);
+                printf("goto %s\n", l_end);
+                c = c->right;
+            }
+            printf("%s:\n", l_end);
+            break;
+        }
+
+        case NODE_CASE:
+            break;
 
 
         default:
@@ -980,6 +1065,8 @@ void gen_stmt(Node *n) {
 %type <nval> program statement expr declaration show_stmt ask_stmt iff_stmt or_chain
              wlp_stmt flp_stmt compound_stmt func_def func_call arg_list param_list
              param return_stmt block stk_decl queue_decl push_stmt pop_stmt inc_stmt
+             incident_stmt case_list
+
 
 %%
 
@@ -1005,6 +1092,7 @@ statement
     | push_stmt          { $$ = $1; }
     | pop_stmt           { $$ = $1; }
     | inc_stmt           { $$ = $1; }
+    | incident_stmt      { $$ = $1; }
     | func_call HASH     { $$ = $1; }
     ;
 
@@ -1161,6 +1249,40 @@ pop_stmt
     }
     ;    
 
+incident_stmt
+    : INCIDENT '(' expr ')' '{' case_list '}' {
+        $$ = makeNode(NODE_SWITCH, $3, $6, NULL);
+    }
+    ;
+
+case_list
+    : /* empty */                              { $$ = NULL; }
+    | case_list CHECK expr COLON '{' block '}' {
+        /* left=block, middle=value expr to match, right=next case */
+        Node *c = makeNode(NODE_CASE, $6, $3, NULL);
+        if ($1 == NULL) {
+            $$ = c;
+        } else {
+            Node *p = $1;
+            while (p->right != NULL) p = p->right;
+            p->right = c;
+            $$ = $1;
+        }
+    }
+    | case_list NOP '{' block '}' {
+        /* nop = default, middle is NULL = always matches */
+        Node *c = makeNode(NODE_CASE, $4, NULL, NULL);
+        if ($1 == NULL) {
+            $$ = c;
+        } else {
+            Node *p = $1;
+            while (p->right != NULL) p = p->right;
+            p->right = c;
+            $$ = $1;
+        }
+    }
+    ;    
+
 iff_stmt
     : IFF '(' expr ')' '{' block '}' {
         /* Iff with no else branch */
@@ -1231,6 +1353,9 @@ expr
         n->name = strdup($3);
         $$ = n;
     }
+    | STRING_LIT  { Node *n = makeNode(NODE_STRING_LIT, NULL, NULL, NULL);
+                n->name = strdup($1);
+                $$ = n; }
     | func_call  { $$ = $1; }
     | '(' expr ')'  { $$ = $2; }
     ;
