@@ -7,17 +7,40 @@ extern int yylex();
 extern FILE *yyin;
 int yyerror(char *msg);
 
+
+/* ══════════════════════════════
+   STACK AND QUEUE NODE TYPES
+   These are heap-allocated — each push/enqueue creates one new node
+   via malloc, each pop/dequeue frees one. No fixed-size array anywhere.
+   ══════════════════════════════ */
+typedef struct StackNode {
+    int              data;
+    struct StackNode *next;  /* points to the node pushed before this one */
+} StackNode;
+
+typedef struct QueueNode {
+    int               data;
+    struct QueueNode *next;  /* points forward toward the rear */
+} QueueNode;
+
 /* ══════════════════════════════
    SYMBOL TABLE
    ══════════════════════════════ */
 typedef struct {
     char name[64];
-    char type[16];
+    char type[16];  /* "int","float","bool","char","stack","queue" */
     union {
         int   ival;
         float fval;
         char  cval;
     } value;
+    /* Stack fields — only meaningful when type == "stack" */
+    StackNode *stk_top;    /* NULL = empty stack                   */
+    int        stk_count;  /* how many nodes are currently linked  */
+    /* Queue fields — only meaningful when type == "queue" */
+    QueueNode *que_front;  /* oldest node — dequeue from here      */
+    QueueNode *que_rear;   /* newest node — enqueue after here     */
+    int        que_count;
 } Symbol;
 
 typedef struct Frame {
@@ -94,14 +117,19 @@ typedef enum {
     NODE_SEQ, NODE_DECL,
     NODE_ADD, NODE_SUB, NODE_MUL, NODE_DIV, NODE_MOD,
     NODE_GT,  NODE_LT,  NODE_EQ,  NODE_NEQ,
-    NODE_LEQ, NODE_GEQ,
+    NODE_LEQ, NODE_GEQ,NODE_INC,
     NODE_AND, NODE_OR,  NODE_XOR,
     NODE_NUM, NODE_IDENT,
     NODE_FUNC_DEF, NODE_FUNC_CALL,
     NODE_RETURN,
     NODE_ARG, NODE_PARAM,
     NODE_SHOW, NODE_ASK,
-    NODE_COMPOUND_ADD,NODE_EXPONENTIAL
+    NODE_COMPOUND_ADD,NODE_EXPONENTIAL,
+    NODE_STK_DECL,    /* stk mystack#           */
+    NODE_QUEUE_DECL,  /* line myqueue#          */
+    NODE_PUSH,        /* lastadd(name $ expr)#  */
+    NODE_POP,         /* lastdrag(name)#        */
+    NODE_EMPTY_CHECK, /* Nainai(name)           */
 } NodeType;
 
 typedef struct Node {
@@ -250,6 +278,18 @@ float eval(Node *n) {
             float exp  = eval(n->right);  /* evaluate the exponent expression */
             return pow(base, exp);        /* call C's math library pow()      */
         }
+        case NODE_EMPTY_CHECK: {
+            Symbol *sym = get_symbol(n->name);
+            if (sym == NULL) {
+                printf("Error: '%s' not declared.\n", n->name);
+                return 0;
+            }
+            if (strcmp(sym->type, "stack") == 0)
+                return (sym->stk_count == 0) ? 1 : 0;
+            if (strcmp(sym->type, "queue") == 0)
+                return (sym->que_count == 0) ? 1 : 0;
+            return 0;
+        }
         default: return 0;
     }
 }
@@ -385,6 +425,126 @@ void execute(Node *n) {
             else
                 sym->value.ival += (int)val;
             printf("Updated: %s += %.2f\n", n->name, val);
+            break;
+        }
+        case NODE_STK_DECL: {
+            insert(n->name, "stack", 0);
+            Symbol *sym = get_symbol(n->name);
+            if (sym) {
+                sym->stk_top   = NULL;  /* NULL top = empty linked list */
+                sym->stk_count = 0;
+            }
+            printf("Stack '%s' declared. (linked-list, unlimited size)\n", n->name);
+            break;
+        }
+
+        case NODE_QUEUE_DECL: {
+            insert(n->name, "queue", 0);
+            Symbol *sym = get_symbol(n->name);
+            if (sym) {
+                sym->que_front = NULL;
+                sym->que_rear  = NULL;  /* both NULL = empty queue */
+                sym->que_count = 0;
+            }
+            printf("Queue '%s' declared. (linked-list, unlimited size)\n", n->name);
+            break;
+        }
+
+        case NODE_PUSH: {
+            Symbol *sym = get_symbol(n->name);
+            if (sym == NULL) {
+                printf("Error: '%s' not declared.\n", n->name);
+                break;
+            }
+            int val = (int)eval(n->left);
+
+            if (strcmp(sym->type, "stack") == 0) {
+                /* Allocate a brand new node on the heap */
+                StackNode *node = malloc(sizeof(StackNode));
+                if (node == NULL) { printf("Out of memory!\n"); break; }
+                node->data     = val;         /* store the value          */
+                node->next     = sym->stk_top;/* new node points to old top */
+                sym->stk_top   = node;        /* top now points to new node */
+                sym->stk_count++;
+                printf("Pushed %d onto stack '%s'  [size=%d]\n",
+                    val, n->name, sym->stk_count);
+
+            } else if (strcmp(sym->type, "queue") == 0) {
+                QueueNode *node = malloc(sizeof(QueueNode));
+                if (node == NULL) { printf("Out of memory!\n"); break; }
+                node->data = val;
+                node->next = NULL;  /* new node is always the last in line */
+                if (sym->que_rear == NULL) {
+                    /* Queue was empty — new node is both front and rear */
+                    sym->que_front = node;
+                    sym->que_rear  = node;
+                } else {
+                    /* Attach after current rear, then advance rear */
+                    sym->que_rear->next = node;
+                    sym->que_rear       = node;
+                }
+                sym->que_count++;
+                printf("Enqueued %d into queue '%s'  [size=%d]\n",
+                    val, n->name, sym->que_count);
+
+            } else {
+                printf("Error: '%s' is not a stack or queue.\n", n->name);
+            }
+            break;
+        }
+
+        case NODE_POP: {
+            Symbol *sym = get_symbol(n->name);
+            if (sym == NULL) {
+                printf("Error: '%s' not declared.\n", n->name);
+                break;
+            }
+
+            if (strcmp(sym->type, "stack") == 0) {
+                if (sym->stk_top == NULL) {
+                    printf("Error: Stack '%s' is empty.\n", n->name);
+                    break;
+                }
+                StackNode *old   = sym->stk_top;  /* save pointer before unlinking */
+                int        val   = old->data;     /* read value before freeing     */
+                sym->stk_top     = old->next;     /* top retreats to previous node */
+                free(old);                        /* return memory to heap         */
+                sym->stk_count--;
+                printf("Popped %d from stack '%s'  [size=%d]\n",
+                    val, n->name, sym->stk_count);
+
+            } else if (strcmp(sym->type, "queue") == 0) {
+                if (sym->que_front == NULL) {
+                    printf("Error: Queue '%s' is empty.\n", n->name);
+                    break;
+                }
+                QueueNode *old = sym->que_front;
+                int        val = old->data;
+                sym->que_front = old->next;       /* front advances to next node   */
+                if (sym->que_front == NULL)
+                    sym->que_rear = NULL;         /* queue emptied — rear must also
+                                                    be NULL to avoid dangling ptr  */
+                free(old);
+                sym->que_count--;
+                printf("Dequeued %d from queue '%s'  [size=%d]\n",
+                    val, n->name, sym->que_count);
+            }
+            break;
+        }
+
+        case NODE_INC: {
+            Symbol *sym = get_symbol(n->name);
+            if (sym == NULL) {
+                printf("Error: Undefined variable '%s'.\n", n->name);
+                break;
+            }
+            if (strcmp(sym->type, "float") == 0) {
+                sym->value.fval += 1;
+                printf("Inc: %s is now %.2f\n", n->name, sym->value.fval);
+            } else {
+                sym->value.ival += 1;
+                printf("Inc: %s is now %d\n", n->name, sym->value.ival);
+            }
             break;
         }
 
@@ -559,6 +719,12 @@ char *gen(Node *n) {
             return t;
         }
 
+        case NODE_EMPTY_CHECK: {
+            char *t = new_temp();
+            printf("%s = empty_check %s\n", t, n->name);
+            return t;
+        }
+
         default:
             return strdup("?");
     }
@@ -726,8 +892,6 @@ void gen_stmt(Node *n) {
         }
 
         case NODE_FUNC_CALL:
-            /* A standalone function call statement — generate it as an expression
-               but discard the return value since nobody is using it. */
             gen(n);
             break;
         case NODE_ASK: {
@@ -737,6 +901,36 @@ void gen_stmt(Node *n) {
             printf("read %s\n", n->name);
             break;
         }
+
+        case NODE_STK_DECL:
+            printf("stack_decl %s\n", n->name);
+            break;
+
+        case NODE_QUEUE_DECL:
+            printf("queue_decl %s\n", n->name);
+            break;
+
+        case NODE_PUSH: {
+            char *val = gen(n->left);
+            if (strcmp("stack", "stack") == 0)  /* will refine with type lookup later */
+                printf("push %s %s\n", n->name, val);
+            else
+                printf("enqueue %s %s\n", n->name, val);
+            break;
+        }
+
+
+
+        case NODE_POP:{
+            printf("pop %s\n", n->name);
+            break;
+        }
+        case NODE_INC: {
+            char *t = new_temp();
+            printf("%s = %s + 1\n", t, n->name);
+            printf("%s = %s\n", n->name, t);
+            break;
+        }    
 
 
         default:
@@ -783,9 +977,9 @@ void gen_stmt(Node *n) {
 
 
 
-%type <nval> program statement expr declaration show_stmt iff_stmt or_chain
-             wlp_stmt flp_stmt compound_stmt func_def func_call arg_list param_list param return_stmt block ask_stmt
-
+%type <nval> program statement expr declaration show_stmt ask_stmt iff_stmt or_chain
+             wlp_stmt flp_stmt compound_stmt func_def func_call arg_list param_list
+             param return_stmt block stk_decl queue_decl push_stmt pop_stmt inc_stmt
 
 %%
 
@@ -793,19 +987,34 @@ void gen_stmt(Node *n) {
 program
     : statement             { $$ = $1; root = $1; }
     | program statement     { $$ = makeNode(NODE_SEQ, $1, NULL, $2); root = $$; }
+    | MFUN '{' block '}'    { $$ = $3; root = $3; }
     ;
 
 statement
     : declaration        { $$ = $1; }
     | show_stmt          { $$ = $1; }
+    | ask_stmt           { $$ = $1; }
     | iff_stmt           { $$ = $1; }
     | wlp_stmt           { $$ = $1; }
     | flp_stmt           { $$ = $1; }
     | compound_stmt      { $$ = $1; }
     | func_def           { $$ = $1; }
     | return_stmt        { $$ = $1; }
-    | ask_stmt           { $$ = $1; }
-    | func_call HASH     { $$ = $1; }  /* function call as a standalone statement */
+    | stk_decl           { $$ = $1; }
+    | queue_decl         { $$ = $1; }
+    | push_stmt          { $$ = $1; }
+    | pop_stmt           { $$ = $1; }
+    | inc_stmt           { $$ = $1; }
+    | func_call HASH     { $$ = $1; }
+    ;
+
+
+inc_stmt
+    : INC '(' IDENT ')' HASH {
+        Node *n = makeNode(NODE_INC, NULL, NULL, NULL);
+        n->name = strdup($3);
+        $$ = n;
+    }
     ;
 
 ask_stmt
@@ -920,6 +1129,38 @@ show_stmt
     }
     ;
 
+stk_decl
+    : STK IDENT HASH {
+        Node *n = makeNode(NODE_STK_DECL, NULL, NULL, NULL);
+        n->name = strdup($2);
+        $$ = n;
+    }
+    ;
+
+queue_decl
+    : LINE IDENT HASH {
+        Node *n = makeNode(NODE_QUEUE_DECL, NULL, NULL, NULL);
+        n->name = strdup($2);
+        $$ = n;
+    }
+    ;
+
+push_stmt
+    : LASTADD '(' IDENT DOLLAR expr ')' HASH {
+        Node *n = makeNode(NODE_PUSH, $5, NULL, NULL);
+        n->name = strdup($3);
+        $$ = n;
+    }
+    ;
+
+pop_stmt
+    : LASTDRAG '(' IDENT ')' HASH {
+        Node *n = makeNode(NODE_POP, NULL, NULL, NULL);
+        n->name = strdup($3);
+        $$ = n;
+    }
+    ;    
+
 iff_stmt
     : IFF '(' expr ')' '{' block '}' {
         /* Iff with no else branch */
@@ -984,9 +1225,14 @@ expr
     | expr NEQL expr{ $$ = makeNode(NODE_NEQ, $1, NULL, $3); }
     | expr EQGRT expr { $$ = makeNode(NODE_GEQ, $1, NULL, $3); }
     | expr EQSML expr { $$ = makeNode(NODE_LEQ, $1, NULL, $3); }
+    | EXPONENTIAL '(' expr DOLLAR expr ')' { $$ = makeNode(NODE_EXPONENTIAL, $3, NULL, $5);}
+    | NAINAI '(' IDENT ')' {
+        Node *n = makeNode(NODE_EMPTY_CHECK, NULL, NULL, NULL);
+        n->name = strdup($3);
+        $$ = n;
+    }
     | func_call  { $$ = $1; }
     | '(' expr ')'  { $$ = $2; }
-    | EXPONENTIAL '(' expr DOLLAR expr ')' { $$ = makeNode(NODE_EXPONENTIAL, $3, NULL, $5);}
     ;
 
 %%

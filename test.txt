@@ -1,3 +1,4 @@
-In x @ 2#
-In result @ Exp(x $ 8)#
-Show(result)#
+In x @ 5#
+Inc (x)#
+Inc (x)#
+Show(x)#
