@@ -1,0 +1,171 @@
+=== Parsing ===
+=== Executing ===
+Stored: x = 10 (type: int)
+Stored: y = 3.14 (type: float)
+Stored: flag = true (type: bool)
+10
+3.14
+1
+Stored: result = false (type: bool)
+0
+Iff condition = 1 (TRUE)
+10
+Stored: counter = 0 (type: int)
+wlp starting...
+Updated: counter += 1.00
+1
+Updated: counter += 1.00
+2
+Updated: counter += 1.00
+3
+wlp done (3 iterations)
+flp starting: 0 to 4
+0
+1
+2
+3
+flp done
+Stored: pw = 8 (type: int)
+8
+Return: 10.00
+Function 'myAdd' returned: 10.00
+Stored: total = 10 (type: int)
+10
+Inc: x is now 11
+11
+Stack 'mystack' declared. (linked-list, unlimited size)
+Pushed 100 onto stack 'mystack'  [size=1]
+Pushed 200 onto stack 'mystack'  [size=2]
+0
+Popped 200 from stack 'mystack'  [size=1]
+0
+Queue 'myqueue' declared. (linked-list, unlimited size)
+Enqueued 10 into queue 'myqueue'  [size=1]
+Enqueued 20 into queue 'myqueue'  [size=2]
+Dequeued 10 from queue 'myqueue'  [size=1]
+Stored: grade = 2 (type: int)
+pass
+Array 'scores' declared. (size=5)
+Array 'scores'[0] = 95
+Array 'scores'[1] = 87
+Array 'scores'[2] = 76
+95
+87
+76
+Stored: word = "hello" (type: string)
+hello
+5
+hello world
+ell
+
+=== Three Address Code ===
+x = 10
+y = 3.14
+flag = 1
+print x
+print y
+print flag
+result = 0
+print result
+t1 = x == 10
+if t1 goto L1
+goto L2
+L1:
+print x
+L2:
+t2 = x == 5
+if t2 goto L3
+goto L4
+L3:
+print 5
+L4:
+print 0
+counter = 0
+L5:
+t3 = counter < 3
+if t3 goto L6
+goto L7
+L6:
+t4 = counter + 1
+counter = t4
+print counter
+goto L5
+L7:
+i = 0
+L8:
+t5 = i < 4
+if t5 goto L9
+goto L10
+L9:
+print i
+t6 = i + 1
+i = t6
+goto L8
+L10:
+pw = 8
+t7 = 2 ^ 3
+print t7
+
+; --- function myAdd ---
+; param a
+; param b
+t8 = a + b
+return t8
+; --- end myAdd ---
+
+param 4
+param 6
+t9 = call myAdd
+total = t9
+print total
+t10 = x + 1
+x = t10
+print x
+stack_decl mystack
+push mystack 100
+push mystack 200
+t11 = empty_check mystack
+print t11
+pop mystack
+t12 = empty_check mystack
+print t12
+queue_decl myqueue
+push myqueue 10
+push myqueue 20
+pop myqueue
+grade = 2
+t13 = grade == 1
+if t13 goto L12
+t14 = grade == 2
+if t14 goto L13
+goto L14
+L12:
+print_str "fail"
+goto L11
+L13:
+print_str "pass"
+goto L11
+L14:
+print_str "unknown"
+goto L11
+L11:
+array_decl scores size 5
+scores[0] = 95
+scores[1] = 87
+scores[2] = 76
+t15 = scores[0]
+print t15
+t16 = scores[1]
+print t16
+t17 = scores[2]
+print t17
+word = "hello"
+print_str word
+t18 = strlen word
+print t18
+t19 = strjoin word ?
+print_str t19
+t20 = takepart word 1 3
+print_str t20
+=== End TAC ===
+=== Done ===

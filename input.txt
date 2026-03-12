@@ -1,0 +1,87 @@
+// ── Phase B: variable declarations and Ask() ──
+In x @ 10#
+flt y @ 3.14#
+bool flag @ true#
+Show(x)#
+Show(y)#
+Show(flag)#
+
+// ── Phase C: bool expressions ──
+bool result @ false#
+Show(result)#
+
+// ── Brick 2: Iff / oriff / or ──
+Iff(x eql 10) {
+    Show(x)#
+} oriff(x eql 5) {
+    Show(5)#
+} or {
+    Show(0)#
+}
+
+// ── Brick 3: wlp + @@ ──
+In counter @ 0#
+wlp(counter lrt 3) {
+    counter @@ 1#
+    Show(counter)#
+}
+
+// ── Brick 4: flp range loop ──
+flp(0:4) {
+    Show(i)#
+}
+
+// ── Phase D: Exp() ──
+In pw @ 8#
+Show(Exp(2 $ 3))#
+
+// ── Brick 5: functions ──
+In myAdd(In a $ In b) {
+    return a add b#
+}
+In total @ myAdd(4 $ 6)#
+Show(total)#
+
+// ── Phase F: Inc ──
+Inc(x)#
+Show(x)#
+
+// ── Phase F: Mfun is tested by wrapping — skip here ──
+
+// ── Phase E: Stack ──
+stk mystack#
+lastadd(mystack $ 100)#
+lastadd(mystack $ 200)#
+Show(Nainai(mystack))#
+lastdrag(mystack)#
+Show(Nainai(mystack))#
+
+// ── Phase E: Queue ──
+line myqueue#
+lastadd(myqueue $ 10)#
+lastadd(myqueue $ 20)#
+lastdrag(myqueue)#
+
+// ── Phase G: incident / check / nop ──
+In grade @ 2#
+incident(grade) {
+    check 1 : { Show("fail")# }
+    check 2 : { Show("pass")# }
+    nop      { Show("unknown")# }
+}
+
+// ── Phase H: MY_ARRAY ──
+MY_ARRAY In scores(5)#
+scores[0] @ 95#
+scores[1] @ 87#
+scores[2] @ 76#
+Show(scores[0])#
+Show(scores[1])#
+Show(scores[2])#
+
+// ── Phase I: string operations ──
+ch word @ "hello"#
+Show(word)#
+Show(strlen(word))#
+Show(strjoin(word $ " world"))#
+Show(takepart(word $ 1 $ 3))#

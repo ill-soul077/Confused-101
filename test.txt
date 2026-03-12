@@ -1,6 +1,10 @@
-In x @ 2#
-incident(x) {
-    check 1 : { Show("one")# }
-    check 2 : { Show("two")# }
-    nop      { Show("other")# }
-}
+MY_ARRAY In nums(5)#
+nums[0] @ 10#
+nums[1] @ 20#
+nums[2] @ 30#
+Show(nums[1])#
+
+ch greeting @ "hello"#
+Show(strjoin(greeting $ " world"))#
+Show(strlen(greeting))#
+Show(takepart(greeting $ 1 $ 3))#

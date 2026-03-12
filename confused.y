@@ -28,19 +28,19 @@ typedef struct QueueNode {
    ══════════════════════════════ */
 typedef struct {
     char name[64];
-    char type[16];  /* "int","float","bool","char","stack","queue" */
+    char type[16];
     union {
         int   ival;
         float fval;
         char  cval;
     } value;
-    /* Stack fields — only meaningful when type == "stack" */
-    StackNode *stk_top;    /* NULL = empty stack                   */
-    int        stk_count;  /* how many nodes are currently linked  */
-    /* Queue fields — only meaningful when type == "queue" */
-    QueueNode *que_front;  /* oldest node — dequeue from here      */
-    QueueNode *que_rear;   /* newest node — enqueue after here     */
-    int        que_count;
+    StackNode *stk_top;    int stk_count;
+    QueueNode *que_front;  QueueNode *que_rear;  int que_count;
+    /* NEW — arrays */
+    int  *arr_data;   /* heap-allocated int array, NULL if not an array */
+    int   arr_size;   /* declared size                                  */
+    /* NEW — strings */
+    char *str_val;    /* heap-allocated string, NULL if not a string    */
 } Symbol;
 
 typedef struct Frame {
@@ -133,6 +133,12 @@ typedef enum {
     NODE_STRING_LIT,
     NODE_SWITCH,
     NODE_CASE,
+    NODE_ARRAY_DECL,   /* MY_ARRAY In name(size)#      */
+    NODE_ARRAY_ASSIGN, /* name(index) @ expr#           */
+    NODE_ARRAY_ACCESS, /* name(index) used as expr      */
+    NODE_STR_JOIN,     /* strjoin(a $ b)                */
+    NODE_STR_LEN,      /* strlen(a)                     */
+    NODE_STR_PART,     /* takepart(a $ start $ len)     */
 } NodeType;
 
 typedef struct Node {
@@ -220,8 +226,44 @@ Node *makeIdent(char *name) {
    EVAL
    ══════════════════════════════ */
 void execute(Node *n);  /* forward declaration */
+float eval(Node *n);    /* forward declaration */
 
-
+/* Returns a malloc'd string for string-valued nodes, or NULL if not a string node */
+char *eval_str(Node *n) {
+    if (n == NULL) return NULL;
+    if (n->type == NODE_STRING_LIT) return strdup(n->name);
+    if (n->type == NODE_IDENT) {
+        Symbol *sym = get_symbol(n->name);
+        if (sym && strcmp(sym->type, "string") == 0 && sym->str_val)
+            return strdup(sym->str_val);
+        return NULL;
+    }
+    if (n->type == NODE_STR_JOIN) {
+        char *a = eval_str(n->left);
+        char *b = eval_str(n->right);
+        if (!a || !b) { free(a); free(b); return strdup(""); }
+        char *result = malloc(strlen(a) + strlen(b) + 1);
+        strcpy(result, a); strcat(result, b);
+        free(a); free(b);
+        return result;
+    }
+    if (n->type == NODE_STR_PART) {
+        char *a     = eval_str(n->left);
+        int   start = (int)eval(n->middle);
+        int   len   = (int)eval(n->right);
+        if (!a) return strdup("");
+        int slen = strlen(a);
+        if (start < 0) start = 0;
+        if (start >= slen) { free(a); return strdup(""); }
+        if (start + len > slen) len = slen - start;
+        char *result = malloc(len + 1);
+        strncpy(result, a + start, len);
+        result[len] = '\0';
+        free(a);
+        return result;
+    }
+    return NULL;
+}
 
 float eval(Node *n) {
     if (n == NULL) return 0;
@@ -294,6 +336,27 @@ float eval(Node *n) {
             return 0;
         }
 
+        case NODE_STR_LEN: {
+            char *s = eval_str(n->left);
+            int len = s ? (int)strlen(s) : 0;
+            free(s);
+            return (float)len;
+        }
+
+        case NODE_ARRAY_ACCESS: {
+            Symbol *sym = get_symbol(n->name);
+            if (sym == NULL || strcmp(sym->type, "array") != 0) {
+                printf("Error: '%s' is not a declared array.\n", n->name);
+                return 0;
+            }
+            int idx = (int)eval(n->left);
+            if (idx < 0 || idx >= sym->arr_size) {
+                printf("Error: Array '%s' index %d out of bounds.\n", n->name, idx);
+                return 0;
+            }
+            return sym->arr_data[idx];
+        }
+
         default: return 0;
     }
 }
@@ -326,6 +389,15 @@ void execute(Node *n) {
                 int bval = (val != 0) ? 1 : 0;
                 insert(n->name, "bool", bval);
                 printf("Stored: %s = %s (type: bool)\n", n->name, bval ? "true" : "false");
+            } else if (n->value == 3) {
+                /* string declaration: ch name @ "literal"# */
+                insert(n->name, "string", 0);
+                Symbol *sym = get_symbol(n->name);
+                if (sym && n->left) {
+                    sym->str_val = strdup(n->left->name);
+                }
+                printf("Stored: %s = \"%s\" (type: string)\n", n->name, 
+                    sym ? sym->str_val : "?");
             }
             break;
         }
@@ -354,6 +426,21 @@ void execute(Node *n) {
         }
 
         case NODE_SHOW: {
+                        if (n->left && (n->left->type == NODE_STRING_LIT ||
+                            n->left->type == NODE_STR_JOIN   ||
+                            n->left->type == NODE_STR_PART)) {
+                char *s = eval_str(n->left);
+                if (s) { printf("%s\n", s); free(s); }
+                break;
+            }
+            /* Also handle Show(stringVar) where the ident holds a string */
+            if (n->left && n->left->type == NODE_IDENT) {
+                Symbol *sym = get_symbol(n->left->name);
+                if (sym && strcmp(sym->type, "string") == 0) {
+                    printf("%s\n", sym->str_val ? sym->str_val : "");
+                    break;
+                }
+            }
             /* Check for string literal FIRST — eval() cannot handle strings */
             if (n->left && n->left->type == NODE_STRING_LIT) {
                 printf("%s\n", n->left->name);
@@ -575,6 +662,35 @@ void execute(Node *n) {
             break;
         }
 
+        case NODE_ARRAY_DECL: {
+            int size = (int)n->value;
+            insert(n->name, "array", 0);
+            Symbol *sym = get_symbol(n->name);
+            if (sym) {
+                sym->arr_data = calloc(size, sizeof(int));
+                sym->arr_size = size;
+            }
+            printf("Array '%s' declared. (size=%d)\n", n->name, size);
+            break;
+        }
+
+        case NODE_ARRAY_ASSIGN: {
+            Symbol *sym = get_symbol(n->name);
+            if (sym == NULL || strcmp(sym->type, "array") != 0) {
+                printf("Error: '%s' is not an array.\n", n->name);
+                break;
+            }
+            int idx = (int)eval(n->left);
+            int val = (int)eval(n->right);
+            if (idx < 0 || idx >= sym->arr_size) {
+                printf("Error: Array '%s' index %d out of bounds.\n", n->name, idx);
+                break;
+            }
+            sym->arr_data[idx] = val;
+            printf("Array '%s'[%d] = %d\n", n->name, idx, val);
+            break;
+        }
+
         case NODE_CASE:
             break; /* never executed directly — always walked via NODE_SWITCH */
 
@@ -755,6 +871,35 @@ char *gen(Node *n) {
             return t;
         }
 
+        case NODE_ARRAY_ACCESS: {
+            char *idx = gen(n->left);
+            char *t   = new_temp();
+            printf("%s = %s[%s]\n", t, n->name, idx);
+            return t;
+        }
+
+        case NODE_STR_JOIN: {
+            char *a = gen(n->left);
+            char *b = gen(n->right);
+            char *t = new_temp();
+            printf("%s = strjoin %s %s\n", t, a, b);
+            return t;
+        }
+        case NODE_STR_LEN: {
+            char *a = gen(n->left);
+            char *t = new_temp();
+            printf("%s = strlen %s\n", t, a);
+            return t;
+        }
+        case NODE_STR_PART: {
+            char *a   = gen(n->left);
+            char *s   = gen(n->middle);
+            char *l   = gen(n->right);
+            char *t   = new_temp();
+            printf("%s = takepart %s %s %s\n", t, a, s, l);
+            return t;
+        }
+
         default:
             return strdup("?");
     }
@@ -784,11 +929,16 @@ void gen_stmt(Node *n) {
                      t1 = call myAdd
                      result = t1              */
         case NODE_DECL: {
-            char *t = gen(n->left);        /* generate TAC for the expression */
-            printf("%s = %s\n", n->name, t); /* assign result to the variable */
+            if (n->value == 3) {
+                /* string declaration — emit a string assignment */
+                char *strval = (n->left && n->left->name) ? n->left->name : "";
+                printf("%s = \"%s\"\n", n->name, strval);
+                break;
+            }
+            char *t = gen(n->left);
+            printf("%s = %s\n", n->name, t);
             break;
         }
-
         /* Show(): evaluate the expression, then print it.
            Example:  Show(result)#
            TAC:      t2 = result
@@ -953,11 +1103,23 @@ void gen_stmt(Node *n) {
                 printf("print_str \"%s\"\n", n->left->name);
                 break;
             }
+            if (n->left && (n->left->type == NODE_STR_JOIN ||
+                            n->left->type == NODE_STR_PART)) {
+                char *t = gen(n->left);
+                printf("print_str %s\n", t);
+                break;
+            }
+            if (n->left && n->left->type == NODE_IDENT) {
+                Symbol *sym = get_symbol(n->left->name);
+                if (sym && strcmp(sym->type, "string") == 0) {
+                    printf("print_str %s\n", n->left->name);
+                    break;
+                }
+            }
             char *t = gen(n->left);
             printf("print %s\n", t);
             break;
         }
-
 
 
         case NODE_POP:{
@@ -1017,6 +1179,17 @@ void gen_stmt(Node *n) {
         case NODE_CASE:
             break;
 
+        case NODE_ARRAY_DECL: {
+            printf("array_decl %s size %d\n", n->name, (int)n->value);
+            break;
+        }
+
+        case NODE_ARRAY_ASSIGN: {
+            char *idx = gen(n->left);
+            char *val = gen(n->right);
+            printf("%s[%s] = %s\n", n->name, idx, val);
+            break;
+        }
 
         default:
             break;
@@ -1065,7 +1238,7 @@ void gen_stmt(Node *n) {
 %type <nval> program statement expr declaration show_stmt ask_stmt iff_stmt or_chain
              wlp_stmt flp_stmt compound_stmt func_def func_call arg_list param_list
              param return_stmt block stk_decl queue_decl push_stmt pop_stmt inc_stmt
-             incident_stmt case_list
+             incident_stmt case_list array_decl array_assign 
 
 
 %%
@@ -1094,6 +1267,8 @@ statement
     | inc_stmt           { $$ = $1; }
     | incident_stmt      { $$ = $1; }
     | func_call HASH     { $$ = $1; }
+    | array_decl   { $$ = $1; }
+    | array_assign { $$ = $1; }
     ;
 
 
@@ -1294,6 +1469,24 @@ iff_stmt
     }
     ;
 
+array_decl
+    : MY_ARRAY IN IDENT '(' INT_LIT ')' HASH {
+        Node *n  = makeNode(NODE_ARRAY_DECL, NULL, NULL, NULL);
+        n->name  = strdup($3);
+        n->value = $5;
+        $$ = n;
+    }
+    ;
+
+array_assign
+    : IDENT '[' expr ']' AT expr HASH {
+        /* left=index expr, right=value expr */
+        Node *n = makeNode(NODE_ARRAY_ASSIGN, $3, NULL, $6);
+        n->name = strdup($1);
+        $$ = n;
+    }
+    ;    
+
 or_chain
     : OR '{' block '}' {
         /* plain or — the else branch */
@@ -1328,6 +1521,16 @@ declaration
     n->value = 2;   /* 2 = bool flag */
     $$ = n;
     }
+    | CH IDENT AT STRING_LIT HASH {
+        Node *n = makeNode(NODE_DECL, NULL, NULL, NULL);
+        n->name  = strdup($2);
+        n->value = 3;   /* 3 = string type */
+        /* store the string literal in the node's right child's name */
+        Node *s = makeNode(NODE_STRING_LIT, NULL, NULL, NULL);
+        s->name = strdup($4);
+        n->left = s;
+        $$ = n;
+    }
     ;
 
 expr
@@ -1356,6 +1559,20 @@ expr
     | STRING_LIT  { Node *n = makeNode(NODE_STRING_LIT, NULL, NULL, NULL);
                 n->name = strdup($1);
                 $$ = n; }
+    | STRJOIN '(' expr DOLLAR expr ')'  {
+                    $$ = makeNode(NODE_STR_JOIN, $3, NULL, $5);
+                }
+                | STRLENF '(' expr ')'  {
+                    $$ = makeNode(NODE_STR_LEN, $3, NULL, NULL);
+                }
+                | TAKEPART '(' expr DOLLAR expr DOLLAR expr ')'  {
+                    $$ = makeNode(NODE_STR_PART, $3, $5, $7);
+                }  
+    | IDENT '[' expr ']' {
+            Node *n = makeNode(NODE_ARRAY_ACCESS, $3, NULL, NULL);
+            n->name = strdup($1);
+            $$ = n;
+        }                      
     | func_call  { $$ = $1; }
     | '(' expr ')'  { $$ = $2; }
     ;
@@ -1368,17 +1585,29 @@ int yyerror(char *msg) {
 }
 
 int main(int argc, char *argv[]) {
-    /* If a filename argument was given, open it and point the lexer at it.
-       This frees stdin so that Ask() / scanf() can read from the keyboard. */
-    if (argc > 1) {
-        FILE *f = fopen(argv[1], "r");
-        if (f == NULL) {
-            printf("Error: Cannot open file '%s'\n", argv[1]);
+    /* argv[1] = input source file, argv[2] = output file (optional) */
+    if (argc < 2) {
+        printf("Usage: confused.exe input.txt [output.txt]\n");
+        return 1;
+    }
+
+    /* Open the source file for the lexer */
+    FILE *f = fopen(argv[1], "r");
+    if (f == NULL) {
+        printf("Error: Cannot open file '%s'\n", argv[1]);
+        return 1;
+    }
+    yyin = f;
+
+    /* If a second argument is given, redirect ALL printf output to that file.
+       freopen() replaces stdout with the output file — every printf after this
+       point writes to the file instead of the terminal. */
+    if (argc >= 3) {
+        if (freopen(argv[2], "w", stdout) == NULL) {
+            printf("Error: Cannot open output file '%s'\n", argv[2]);
             return 1;
         }
-        yyin = f;   /* yyin is Flex's input file pointer — redirect it to our file */
     }
-    /* If no argument given, fall back to stdin as before */
 
     push_frame("global");
     printf("=== Parsing ===\n");
