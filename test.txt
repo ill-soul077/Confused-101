@@ -1,10 +1,69 @@
-MY_ARRAY In nums(5)#
-nums[0] @ 10#
-nums[1] @ 20#
-nums[2] @ 30#
-Show(nums[1])#
+// arithmetic and power
+In result @ x add 5 mul 2#
+In pw @ Exp(2 $ 8)#
+Show(result)#
+Show(pw)#
 
-ch greeting @ "hello"#
-Show(strjoin(greeting $ " world"))#
-Show(strlen(greeting))#
-Show(takepart(greeting $ 1 $ 3))#
+// conditional
+Iff(x grt 10) {
+    Show("x is big")#
+} or {
+    Show("x is small")#
+}
+
+// switch
+In grade @ 2#
+incident(grade) {
+    check 1 : { Show("fail")# }
+    check 2 : { Show("pass")# }
+    nop      { Show("unknown")# }
+}
+
+// range loop
+flp(0:4) {
+    Show(i)#
+}
+
+// while loop
+In counter @ 0#
+wlp(counter lrt 3) {
+    counter @@ 1#
+    Show(counter)#
+}
+
+// function
+In square(In n) {
+    return n mul n#
+}
+In sq @ square(5)#
+Show(sq)#
+
+// stack
+stk mystack#
+lastadd(mystack $ 10)#
+lastadd(mystack $ 20)#
+lastadd(mystack $ 30)#
+Show(Nainai(mystack))#
+lastdrag(mystack)#
+Show(Nainai(mystack))#
+
+// queue
+line myqueue#
+lastadd(myqueue $ 100)#
+lastadd(myqueue $ 200)#
+lastdrag(myqueue)#
+
+// array
+MY_ARRAY In nums(3)#
+nums[0] @ 11#
+nums[1] @ 22#
+nums[2] @ 33#
+Show(nums[0])#
+Show(nums[1])#
+Show(nums[2])#
+
+// strings
+Show(word)#
+Show(strlen(word))#
+Show(strjoin(word $ " world"))#
+Show(takepart(word $ 1 $ 3))#

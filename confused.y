@@ -2,30 +2,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>  /* for pow() in exponential operator */
+#include <math.h>  
 extern int yylex();
 extern FILE *yyin;
 int yyerror(char *msg);
 
 
-/* ══════════════════════════════
-   STACK AND QUEUE NODE TYPES
-   These are heap-allocated — each push/enqueue creates one new node
-   via malloc, each pop/dequeue frees one. No fixed-size array anywhere.
-   ══════════════════════════════ */
+/* STACK AND QUEUE */
 typedef struct StackNode {
     int              data;
-    struct StackNode *next;  /* points to the node pushed before this one */
+    struct StackNode *next;  
 } StackNode;
 
 typedef struct QueueNode {
     int               data;
-    struct QueueNode *next;  /* points forward toward the rear */
+    struct QueueNode *next; 
 } QueueNode;
 
-/* ══════════════════════════════
-   SYMBOL TABLE
-   ══════════════════════════════ */
+/*  SYMBOL TABLE */
 typedef struct {
     char name[64];
     char type[16];
@@ -36,11 +30,9 @@ typedef struct {
     } value;
     StackNode *stk_top;    int stk_count;
     QueueNode *que_front;  QueueNode *que_rear;  int que_count;
-    /* NEW — arrays */
-    int  *arr_data;   /* heap-allocated int array, NULL if not an array */
-    int   arr_size;   /* declared size                                  */
-    /* NEW — strings */
-    char *str_val;    /* heap-allocated string, NULL if not a string    */
+    int  *arr_data;   
+    int   arr_size;   
+    char *str_val;   
 } Symbol;
 
 typedef struct Frame {
@@ -109,9 +101,7 @@ void insertFloat(char *name, char *type, float value) {
     f->local_count++;
 }
 
-/* ══════════════════════════════
-   AST NODE TYPES
-   ══════════════════════════════ */
+/* AST NODE TYPES*/
 typedef enum {
     NODE_IF, NODE_WHILE, NODE_FOR,
     NODE_SEQ, NODE_DECL,
@@ -125,20 +115,20 @@ typedef enum {
     NODE_ARG, NODE_PARAM,
     NODE_SHOW, NODE_ASK,
     NODE_COMPOUND_ADD,NODE_EXPONENTIAL,
-    NODE_STK_DECL,    /* stk mystack#           */
-    NODE_QUEUE_DECL,  /* line myqueue#          */
-    NODE_PUSH,        /* lastadd(name $ expr)#  */
-    NODE_POP,         /* lastdrag(name)#        */
-    NODE_EMPTY_CHECK, /* Nainai(name)           */
+    NODE_STK_DECL,    
+    NODE_QUEUE_DECL,  
+    NODE_PUSH,        
+    NODE_POP,         
+    NODE_EMPTY_CHECK, 
     NODE_STRING_LIT,
     NODE_SWITCH,
     NODE_CASE,
-    NODE_ARRAY_DECL,   /* MY_ARRAY In name(size)#      */
-    NODE_ARRAY_ASSIGN, /* name(index) @ expr#           */
-    NODE_ARRAY_ACCESS, /* name(index) used as expr      */
-    NODE_STR_JOIN,     /* strjoin(a $ b)                */
-    NODE_STR_LEN,      /* strlen(a)                     */
-    NODE_STR_PART,     /* takepart(a $ start $ len)     */
+    NODE_ARRAY_DECL,   
+    NODE_ARRAY_ASSIGN, 
+    NODE_ARRAY_ACCESS, 
+    NODE_STR_JOIN,     
+    NODE_STR_LEN,      
+    NODE_STR_PART,     
 } NodeType;
 
 typedef struct Node {
@@ -195,10 +185,7 @@ FuncEntry *lookup_func(char *name) {
 }
 
 
-
-/* ══════════════════════════════
-   NODE CONSTRUCTORS
-   ══════════════════════════════ */
+/*  NODE CONSTRUCTORS */
 Node *makeNode(NodeType type, Node *left, Node *middle, Node *right) {
     Node *n  = malloc(sizeof(Node));
     n->type  = type;
@@ -222,13 +209,10 @@ Node *makeIdent(char *name) {
     return n;
 }
 
-/* ══════════════════════════════
-   EVAL
-   ══════════════════════════════ */
-void execute(Node *n);  /* forward declaration */
-float eval(Node *n);    /* forward declaration */
+/*    EVAL      */
+void execute(Node *n);  
+float eval(Node *n);    
 
-/* Returns a malloc'd string for string-valued nodes, or NULL if not a string node */
 char *eval_str(Node *n) {
     if (n == NULL) return NULL;
     if (n->type == NODE_STRING_LIT) return strdup(n->name);
@@ -302,7 +286,7 @@ float eval(Node *n) {
                 return 0;
             }
             push_frame(n->name);
-            /* bind arguments to parameter names */
+            
             Node *arg = n->left;
             for (int i = 0; i < fn->param_count && arg != NULL; i++) {
                 float val = eval(arg->left);
@@ -319,9 +303,9 @@ float eval(Node *n) {
             return ret;
         }
         case NODE_EXPONENTIAL: {
-            float base = eval(n->left);   /* evaluate the base expression     */
-            float exp  = eval(n->right);  /* evaluate the exponent expression */
-            return pow(base, exp);        /* call C's math library pow()      */
+            float base = eval(n->left);   
+            float exp  = eval(n->right);  
+            return pow(base, exp);        
         }
         case NODE_EMPTY_CHECK: {
             Symbol *sym = get_symbol(n->name);
@@ -361,11 +345,7 @@ float eval(Node *n) {
     }
 }
 
-/* ══════════════════════════════
-   EXECUTE (forward declaration)
-   ══════════════════════════════ */
-
-
+/*  EXECUTE  */
 void execute(Node *n) {
     if (n == NULL) return;
     switch (n->type) {
@@ -390,7 +370,7 @@ void execute(Node *n) {
                 insert(n->name, "bool", bval);
                 printf("Stored: %s = %s (type: bool)\n", n->name, bval ? "true" : "false");
             } else if (n->value == 3) {
-                /* string declaration: ch name @ "literal"# */
+                
                 insert(n->name, "string", 0);
                 Symbol *sym = get_symbol(n->name);
                 if (sym && n->left) {
@@ -433,7 +413,7 @@ void execute(Node *n) {
                 if (s) { printf("%s\n", s); free(s); }
                 break;
             }
-            /* Also handle Show(stringVar) where the ident holds a string */
+            
             if (n->left && n->left->type == NODE_IDENT) {
                 Symbol *sym = get_symbol(n->left->name);
                 if (sym && strcmp(sym->type, "string") == 0) {
@@ -441,12 +421,12 @@ void execute(Node *n) {
                     break;
                 }
             }
-            /* Check for string literal FIRST — eval() cannot handle strings */
+            
             if (n->left && n->left->type == NODE_STRING_LIT) {
                 printf("%s\n", n->left->name);
                 break;
             }
-            /* For everything else, eval() gives us the numeric value */
+           
             float val = eval(n->left);
             if (n->left && n->left->type == NODE_IDENT) {
                 Symbol *sym = get_symbol(n->left->name);
@@ -472,30 +452,27 @@ void execute(Node *n) {
             int start = (int)eval(n->left);
             int end   = (int)eval(n->middle);
             printf("flp starting: %d to %d\n", start, end);
-            /* automatically create the loop variable i in the current frame */
             insert("i", "int", start);
             Symbol *i_sym = get_symbol("i");
             for (i_sym->value.ival = start; i_sym->value.ival < end; i_sym->value.ival++) {
-                execute(n->right);   /* run the loop body */
+                execute(n->right);  
             }
             printf("flp done\n");
             break;
         }
 
         case NODE_ASK: {
-            /* Look up the variable in the symbol table first.
-            We need to know its type so we can call scanf correctly. */
             Symbol *sym = get_symbol(n->name);
             if (sym == NULL) {
                 printf("Error: Variable '%s' not declared. Declare it before using Ask().\n", n->name);
                 break;
             }
-            printf("Enter value for %s: ", n->name);   /* prompt the user */
+            printf("Enter value for %s: ", n->name);   
             
             if (strcmp(sym->type, "float") == 0) {
-                scanf("%f", &sym->value.fval);          /* read directly into the symbol's float slot */
+                scanf("%f", &sym->value.fval);         
             } else {
-                scanf("%d", &sym->value.ival);          /* read directly into the symbol's int slot */
+                scanf("%d", &sym->value.ival);         
             }
             printf("Read: %s = ", n->name);
             if (strcmp(sym->type, "float") == 0)
@@ -506,10 +483,9 @@ void execute(Node *n) {
         }
 
         case NODE_FUNC_DEF:
-            break; /* already stored in func_table during parsing */
+            break; 
 
         case NODE_COMPOUND_ADD: {
-            /* x @@ expr  means  x = x + expr */
             Symbol *sym = get_symbol(n->name);
             if (sym == NULL) {
                 printf("Error: Undefined variable '%s'.\n", n->name);
@@ -527,7 +503,7 @@ void execute(Node *n) {
             insert(n->name, "stack", 0);
             Symbol *sym = get_symbol(n->name);
             if (sym) {
-                sym->stk_top   = NULL;  /* NULL top = empty linked list */
+                sym->stk_top   = NULL;  
                 sym->stk_count = 0;
             }
             printf("Stack '%s' declared. (linked-list, unlimited size)\n", n->name);
@@ -539,7 +515,7 @@ void execute(Node *n) {
             Symbol *sym = get_symbol(n->name);
             if (sym) {
                 sym->que_front = NULL;
-                sym->que_rear  = NULL;  /* both NULL = empty queue */
+                sym->que_rear  = NULL;  
                 sym->que_count = 0;
             }
             printf("Queue '%s' declared. (linked-list, unlimited size)\n", n->name);
@@ -555,12 +531,11 @@ void execute(Node *n) {
             int val = (int)eval(n->left);
 
             if (strcmp(sym->type, "stack") == 0) {
-                /* Allocate a brand new node on the heap */
                 StackNode *node = malloc(sizeof(StackNode));
                 if (node == NULL) { printf("Out of memory!\n"); break; }
-                node->data     = val;         /* store the value          */
-                node->next     = sym->stk_top;/* new node points to old top */
-                sym->stk_top   = node;        /* top now points to new node */
+                node->data     = val;         
+                node->next     = sym->stk_top;
+                sym->stk_top   = node;       
                 sym->stk_count++;
                 printf("Pushed %d onto stack '%s'  [size=%d]\n",
                     val, n->name, sym->stk_count);
@@ -569,13 +544,13 @@ void execute(Node *n) {
                 QueueNode *node = malloc(sizeof(QueueNode));
                 if (node == NULL) { printf("Out of memory!\n"); break; }
                 node->data = val;
-                node->next = NULL;  /* new node is always the last in line */
+                node->next = NULL; 
                 if (sym->que_rear == NULL) {
-                    /* Queue was empty — new node is both front and rear */
+                    
                     sym->que_front = node;
                     sym->que_rear  = node;
                 } else {
-                    /* Attach after current rear, then advance rear */
+                    
                     sym->que_rear->next = node;
                     sym->que_rear       = node;
                 }
@@ -601,10 +576,10 @@ void execute(Node *n) {
                     printf("Error: Stack '%s' is empty.\n", n->name);
                     break;
                 }
-                StackNode *old   = sym->stk_top;  /* save pointer before unlinking */
-                int        val   = old->data;     /* read value before freeing     */
-                sym->stk_top     = old->next;     /* top retreats to previous node */
-                free(old);                        /* return memory to heap         */
+                StackNode *old   = sym->stk_top; 
+                int        val   = old->data;     
+                sym->stk_top     = old->next;     
+                free(old);                        
                 sym->stk_count--;
                 printf("Popped %d from stack '%s'  [size=%d]\n",
                     val, n->name, sym->stk_count);
@@ -616,10 +591,9 @@ void execute(Node *n) {
                 }
                 QueueNode *old = sym->que_front;
                 int        val = old->data;
-                sym->que_front = old->next;       /* front advances to next node   */
+                sym->que_front = old->next;       
                 if (sym->que_front == NULL)
-                    sym->que_rear = NULL;         /* queue emptied — rear must also
-                                                    be NULL to avoid dangling ptr  */
+                    sym->que_rear = NULL;         
                 free(old);
                 sym->que_count--;
                 printf("Dequeued %d from queue '%s'  [size=%d]\n",
@@ -649,7 +623,7 @@ void execute(Node *n) {
             Node *c = n->middle;
             int matched = 0;
             while (c != NULL) {
-                /* middle == NULL means this is the nop/default case */
+                
                 if (c->middle == NULL || eval(c->middle) == switch_val) {
                     execute(c->left);
                     matched = 1;
@@ -692,43 +666,31 @@ void execute(Node *n) {
         }
 
         case NODE_CASE:
-            break; /* never executed directly — always walked via NODE_SWITCH */
+            break; 
 
         default: break;
     }
 }
 
-/* ══════════════════════════════
-   TAC HELPERS
-   ══════════════════════════════ */
+/* TAC HELPERS */
 
 int temp_count  = 0;   /* counts t1, t2, t3 ... */
 int label_count = 0;   /* counts L1, L2, L3 ... */
 
-/* Returns a new unique temporary name like "t1", "t2" etc.
-   malloc gives it its own memory so it persists after the function returns. */
 char *new_temp() {
     char *buf = malloc(16);
     sprintf(buf, "t%d", ++temp_count);
     return buf;
 }
 
-/* Returns a new unique label name like "L1", "L2" etc.
-   Used for Iff, wlp, flp branch targets. */
+
 char *new_label() {
     char *buf = malloc(16);
     sprintf(buf, "L%d", ++label_count);
     return buf;
 }
 
-/* ══════════════════════════════
-   gen() — TAC for EXPRESSIONS
-   Takes a node, prints TAC instructions for everything inside it,
-   and returns a string: either a variable name, a literal, or a
-   new temporary that holds the result.
-   ══════════════════════════════ */
 
-/* Forward declaration so gen() and gen_stmt() can call each other */
 void gen_stmt(Node *n);
 
 char *gen(Node *n) {
@@ -736,11 +698,8 @@ char *gen(Node *n) {
 
     switch (n->type) {
 
-        /* ── LEAF NODES ── no instruction needed, just return the name/value */
         case NODE_NUM: {
-            /* It's a literal number like 3 or 5.0
-               We format it as a string and return it directly.
-               No temporary needed — the value is already "known". */
+
             char *buf = malloc(32);
             if (n->value == (int)n->value)
                 sprintf(buf, "%d", (int)n->value);
@@ -750,17 +709,13 @@ char *gen(Node *n) {
         }
 
         case NODE_IDENT:
-            /* It's a variable like x or result.
-               The "address" of this value is just the variable's name.
-               Return it directly — no instruction, no temporary. */
             return strdup(n->name);
 
-        /* ── ARITHMETIC NODES ── 
-           Pattern is always: gen left, gen right, make temp, print instruction, return temp */
+
         case NODE_ADD: {
-            char *l = gen(n->left);   /* generate TAC for left side  */
-            char *r = gen(n->right);  /* generate TAC for right side */
-            char *t = new_temp();     /* fresh bucket for the result  */
+            char *l = gen(n->left);   
+            char *r = gen(n->right);  
+            char *t = new_temp();     
             printf("%s = %s + %s\n", t, l, r);
             return t;
         }
@@ -793,9 +748,7 @@ char *gen(Node *n) {
             return t;
         }
 
-        /* ── RELATIONAL NODES ──
-           These produce a 0 or 1 result, stored in a temporary.
-           Used as conditions in Iff and wlp. */
+
         case NODE_GT: {
             char *l = gen(n->left);
             char *r = gen(n->right);
@@ -840,26 +793,22 @@ char *gen(Node *n) {
         }
 
         case NODE_EXPONENTIAL: {
-            char *base = gen(n->left);    /* generate TAC for the base     */
-            char *exp  = gen(n->right);   /* generate TAC for the exponent */
+            char *base = gen(n->left);    
+            char *exp  = gen(n->right);   
             char *t    = new_temp();
-            printf("%s = %s ^ %s\n", t, base, exp);  /* ^ is TAC notation for power */
+            printf("%s = %s ^ %s\n", t, base, exp);  
             return t;
         }
 
-        /* ── FUNCTION CALL ──
-           TAC convention: push each argument with "param", then "call".
-           The return value lands in a new temporary. */
         case NODE_FUNC_CALL: {
-            /* First, generate TAC for every argument and emit param instructions.
-               Arguments are chained as NODE_ARG nodes via the right pointer. */
+
             Node *arg = n->left;
             while (arg != NULL) {
-                char *a = gen(arg->left);   /* evaluate the argument expression */
-                printf("param %s\n", a);    /* push it onto the param list */
+                char *a = gen(arg->left);   
+                printf("param %s\n", a);    
                 arg = arg->right;
             }
-            /* Now emit the call instruction and capture the return value */
+            
             char *t = new_temp();
             printf("%s = call %s\n", t, n->name);
             return t;
@@ -905,32 +854,21 @@ char *gen(Node *n) {
     }
 }
 
-/* ══════════════════════════════
-   gen_stmt() — TAC for STATEMENTS
-   Walks statement nodes and emits TAC.
-   Returns nothing — statements are actions, not values.
-   ══════════════════════════════ */
+
 void gen_stmt(Node *n) {
     if (n == NULL) return;
 
     switch (n->type) {
 
-        /* NODE_SEQ is the backbone of the program — a chain of statements.
-           Just recurse left then right, same as execute() does. */
+
         case NODE_SEQ:
             gen_stmt(n->left);
             gen_stmt(n->right);
             break;
 
-        /* Declaration: evaluate the right-hand expression, assign to variable.
-           Example:  In result @ myAdd(3 $ 5)#
-           TAC:      param 3
-                     param 5
-                     t1 = call myAdd
-                     result = t1              */
+
         case NODE_DECL: {
             if (n->value == 3) {
-                /* string declaration — emit a string assignment */
                 char *strval = (n->left && n->left->name) ? n->left->name : "";
                 printf("%s = \"%s\"\n", n->name, strval);
                 break;
@@ -939,132 +877,87 @@ void gen_stmt(Node *n) {
             printf("%s = %s\n", n->name, t);
             break;
         }
-        /* Show(): evaluate the expression, then print it.
-           Example:  Show(result)#
-           TAC:      t2 = result
-                     print t2               */
-        // case NODE_SHOW: {
-        //     char *t = gen(n->left);
-        //     printf("print %s\n", t);
-        //     break;
-        // }
 
-        /* Compound assignment: x @@ expr  means  x = x + expr
-           TAC:  t1 = x + expr_result
-                 x  = t1                   */
         case NODE_COMPOUND_ADD: {
-            char *t_val = gen(n->left);     /* generate the right-hand expr */
+            char *t_val = gen(n->left);    
             char *t_res = new_temp();
             printf("%s = %s + %s\n", t_res, n->name, t_val);
             printf("%s = %s\n", n->name, t_res);
             break;
         }
 
-        /* Return statement inside a function.
-           TAC:  t1 = expr_result
-                 return t1                 */
+
         case NODE_RETURN: {
             char *t = gen(n->left);
             printf("return %s\n", t);
             break;
         }
 
-        /* Function definition: print a label marking where the function starts,
-           then generate TAC for the body.
-           NODE_FUNC_DEF itself doesn't execute — but in TAC we want to show
-           the function's code as a labeled section. */
+
         case NODE_FUNC_DEF: {
             printf("\n; --- function %s ---\n", n->name);
-            /* Print parameter names so the TAC is readable */
+            
             FuncEntry *fn = lookup_func(n->name);
             if (fn) {
                 for (int i = 0; i < fn->param_count; i++)
                     printf("; param %s\n", fn->param_names[i]);
             }
-            gen_stmt(n->middle);   /* middle child = function body (the block) */
+            gen_stmt(n->middle);   
             printf("; --- end %s ---\n\n", n->name);
             break;
         }
 
-        /* Iff statement — this is where labels become essential.
-           Pattern:
-               <condition TAC>
-               if t1 goto L1
-               goto L2
-           L1:
-               <true body TAC>
-           L2:                         */
+
         case NODE_IF: {
-            char *t   = gen(n->left);     /* generate condition expression TAC */
-            char *l_true = new_label();   /* label for the true branch */
-            char *l_end  = new_label();   /* label for after the whole Iff */
+            char *t   = gen(n->left);     
+            char *l_true = new_label();   
+            char *l_end  = new_label();   
 
             printf("if %s goto %s\n", t, l_true);
             printf("goto %s\n", l_end);
             printf("%s:\n", l_true);
-            gen_stmt(n->middle);           /* true branch body */
+            gen_stmt(n->middle);           
             printf("%s:\n", l_end);
             if (n->right != NULL)
-                gen_stmt(n->right);        /* or/oriff chain if it exists */
+                gen_stmt(n->right);        
             break;
         }
 
-        /* wlp (while loop).
-           Pattern:
-           L1:                    <- loop back here each iteration
-               <condition TAC>
-               if t1 goto L2      <- enter body if condition true
-               goto L3            <- exit loop if condition false
-           L2:
-               <body TAC>
-               goto L1            <- always jump back to check condition
-           L3:                    <- loop exits here               */
+
         case NODE_WHILE: {
-            char *l_start = new_label();   /* top of loop — re-evaluated each time */
-            char *l_body  = new_label();   /* enter body */
-            char *l_end   = new_label();   /* exit loop  */
+            char *l_start = new_label();   
+            char *l_body  = new_label();   
+            char *l_end   = new_label();   
 
             printf("%s:\n", l_start);
-            char *t = gen(n->left);        /* condition expression */
+            char *t = gen(n->left);        
             printf("if %s goto %s\n", t, l_body);
             printf("goto %s\n", l_end);
             printf("%s:\n", l_body);
-            gen_stmt(n->middle);           /* loop body */
-            printf("goto %s\n", l_start); /* jump back to re-check condition */
+            gen_stmt(n->middle);           
+            printf("goto %s\n", l_start); 
             printf("%s:\n", l_end);
             break;
         }
 
-        /* flp (range-based for loop).
-           We expand it into TAC using i as the loop variable.
-           Pattern:
-               i = start
-           L1:
-               t1 = i < end
-               if t1 goto L2
-               goto L3
-           L2:
-               <body TAC>
-               i = i + 1
-               goto L1
-           L3:                                                    */
+
         case NODE_FOR: {
-            char *start   = gen(n->left);    /* start expression */
-            char *end_val = gen(n->middle);  /* end expression   */
+            char *start   = gen(n->left);    
+            char *end_val = gen(n->middle);  
             char *l_start = new_label();
             char *l_body  = new_label();
             char *l_end   = new_label();
 
-            printf("i = %s\n", start);        /* initialize loop variable */
+            printf("i = %s\n", start);        
             printf("%s:\n", l_start);
             char *t_cond = new_temp();
-            printf("%s = i < %s\n", t_cond, end_val);  /* check i < end */
+            printf("%s = i < %s\n", t_cond, end_val); 
             printf("if %s goto %s\n", t_cond, l_body);
             printf("goto %s\n", l_end);
             printf("%s:\n", l_body);
-            gen_stmt(n->right);                /* loop body */
+            gen_stmt(n->right);                
             char *t_inc = new_temp();
-            printf("%s = i + 1\n", t_inc);     /* increment i */
+            printf("%s = i + 1\n", t_inc);     
             printf("i = %s\n", t_inc);
             printf("goto %s\n", l_start);
             printf("%s:\n", l_end);
@@ -1075,9 +968,6 @@ void gen_stmt(Node *n) {
             gen(n);
             break;
         case NODE_ASK: {
-            /* TAC for input is simply a 'read' instruction targeting the variable.
-            This is the TAC equivalent of scanf — a backend would translate
-            this into a system call or library call to read from stdin. */
             printf("read %s\n", n->name);
             break;
         }
@@ -1092,7 +982,7 @@ void gen_stmt(Node *n) {
 
         case NODE_PUSH: {
             char *val = gen(n->left);
-            if (strcmp("stack", "stack") == 0)  /* will refine with type lookup later */
+            if (strcmp("stack", "stack") == 0) 
                 printf("push %s %s\n", n->name, val);
             else
                 printf("enqueue %s %s\n", n->name, val);
@@ -1133,21 +1023,19 @@ void gen_stmt(Node *n) {
             break;
         }    
         case NODE_SWITCH: {
-            char *sv    = gen(n->left);   /* evaluate switch expr once */
+            char *sv    = gen(n->left);   
             char *l_end = new_label();
 
-            /* Two-pass approach:
-            Pass 1 — generate condition checks and collect case labels.
-            Pass 2 — emit each block under its label. */
+
             char *case_labels[50];
             int   case_count = 0;
             char *l_default  = NULL;
 
-            /* Pass 1 */
+           
             Node *c = n->middle;
             while (c != NULL) {
                 if (c->middle == NULL) {
-                    /* nop/default — no condition check, just a label */
+           
                     l_default = new_label();
                     case_labels[case_count++] = l_default;
                 } else {
@@ -1160,11 +1048,11 @@ void gen_stmt(Node *n) {
                 }
                 c = c->right;
             }
-            /* Fall-through if nothing matched */
+            
             if (l_default) printf("goto %s\n", l_default);
             else           printf("goto %s\n", l_end);
 
-            /* Pass 2 */
+            
             c = n->middle;
             for (int i = 0; i < case_count; i++) {
                 printf("%s:\n", case_labels[i]);
@@ -1243,7 +1131,7 @@ void gen_stmt(Node *n) {
 
 %%
 
-/* stub — just enough to compile cleanly for now */
+
 program
     : statement             { $$ = $1; root = $1; }
     | program statement     { $$ = makeNode(NODE_SEQ, $1, NULL, $2); root = $$; }
@@ -1316,7 +1204,7 @@ param_list
     : /* empty */            { $$ = NULL; }
     | param                  { $$ = $1; }
     | param_list DOLLAR param {
-        /* chain params using the right pointer */
+        
         Node *p = $1;
         while (p->right != NULL) p = p->right;
         p->right = $3;
@@ -1328,7 +1216,6 @@ arg_list
     : /* empty */            { $$ = NULL; }
     | expr                   { $$ = makeNode(NODE_ARG, $1, NULL, NULL); }
     | arg_list DOLLAR expr   {
-        /* chain args using the right pointer */
         Node *a = makeNode(NODE_ARG, $3, NULL, NULL);
         Node *p = $1;
         while (p->right != NULL) p = p->right;
@@ -1366,14 +1253,13 @@ func_call
 
 flp_stmt
     : FLP '(' expr COLON expr ')' '{' block '}' {
-        /* left = start expr, middle = end expr, right = loop body */
+        
         Node *n = makeNode(NODE_FOR, $3, $5, $8);
         $$ = n;
     }
     ;
 wlp_stmt
     : WLP '(' expr ')' '{' block '}' {
-        /* condition in left, loop body in middle, no right needed */
         $$ = makeNode(NODE_WHILE, $3, $6, NULL);
     }
     ;
@@ -1433,7 +1319,7 @@ incident_stmt
 case_list
     : /* empty */                              { $$ = NULL; }
     | case_list CHECK expr COLON '{' block '}' {
-        /* left=block, middle=value expr to match, right=next case */
+        
         Node *c = makeNode(NODE_CASE, $6, $3, NULL);
         if ($1 == NULL) {
             $$ = c;
@@ -1445,7 +1331,7 @@ case_list
         }
     }
     | case_list NOP '{' block '}' {
-        /* nop = default, middle is NULL = always matches */
+        
         Node *c = makeNode(NODE_CASE, $4, NULL, NULL);
         if ($1 == NULL) {
             $$ = c;
@@ -1460,11 +1346,11 @@ case_list
 
 iff_stmt
     : IFF '(' expr ')' '{' block '}' {
-        /* Iff with no else branch */
+       
         $$ = makeNode(NODE_IF, $3, $6, NULL);
     }
     | IFF '(' expr ')' '{' block '}' or_chain {
-        /* Iff with or/oriff chain */
+        
         $$ = makeNode(NODE_IF, $3, $6, $8);
     }
     ;
@@ -1480,7 +1366,7 @@ array_decl
 
 array_assign
     : IDENT '[' expr ']' AT expr HASH {
-        /* left=index expr, right=value expr */
+        
         Node *n = makeNode(NODE_ARRAY_ASSIGN, $3, NULL, $6);
         n->name = strdup($1);
         $$ = n;
@@ -1489,15 +1375,13 @@ array_assign
 
 or_chain
     : OR '{' block '}' {
-        /* plain or — the else branch */
         $$ = $3;
     }
     | ORIFF '(' expr ')' '{' block '}' {
-        /* oriff with no further chain */
+        
         $$ = makeNode(NODE_IF, $3, $6, NULL);
     }
     | ORIFF '(' expr ')' '{' block '}' or_chain {
-        /* oriff chained with more oriff/or */
         $$ = makeNode(NODE_IF, $3, $6, $8);
     }
     ;
@@ -1506,26 +1390,25 @@ declaration
     : IN IDENT AT expr HASH {
         Node *n  = makeNode(NODE_DECL, $4, NULL, NULL);
         n->name  = strdup($2);
-        n->value = 0;   /* 0 = int */
+        n->value = 0;   
         $$ = n;
     }
     | FLT IDENT AT expr HASH {
         Node *n  = makeNode(NODE_DECL, $4, NULL, NULL);
         n->name  = strdup($2);
-        n->value = 1;   /* 1 = float */
+        n->value = 1;  
         $$ = n;
     }
     | BOOL IDENT AT expr HASH {
     Node *n  = makeNode(NODE_DECL, $4, NULL, NULL);
     n->name  = strdup($2);
-    n->value = 2;   /* 2 = bool flag */
+    n->value = 2;  
     $$ = n;
     }
     | CH IDENT AT STRING_LIT HASH {
         Node *n = makeNode(NODE_DECL, NULL, NULL, NULL);
         n->name  = strdup($2);
-        n->value = 3;   /* 3 = string type */
-        /* store the string literal in the node's right child's name */
+        n->value = 3;   
         Node *s = makeNode(NODE_STRING_LIT, NULL, NULL, NULL);
         s->name = strdup($4);
         n->left = s;
@@ -1585,13 +1468,12 @@ int yyerror(char *msg) {
 }
 
 int main(int argc, char *argv[]) {
-    /* argv[1] = input source file, argv[2] = output file (optional) */
     if (argc < 2) {
         printf("Usage: confused.exe input.txt [output.txt]\n");
         return 1;
     }
 
-    /* Open the source file for the lexer */
+    
     FILE *f = fopen(argv[1], "r");
     if (f == NULL) {
         printf("Error: Cannot open file '%s'\n", argv[1]);
@@ -1599,9 +1481,7 @@ int main(int argc, char *argv[]) {
     }
     yyin = f;
 
-    /* If a second argument is given, redirect ALL printf output to that file.
-       freopen() replaces stdout with the output file — every printf after this
-       point writes to the file instead of the terminal. */
+
     if (argc >= 3) {
         if (freopen(argv[2], "w", stdout) == NULL) {
             printf("Error: Cannot open output file '%s'\n", argv[2]);

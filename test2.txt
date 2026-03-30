@@ -1,0 +1,34 @@
+In x @ 10#
+In y @ 5#
+
+
+In x @ 10#
+In y @ 3#
+In sum @ x add y#
+In diff @ x sub y#
+In prod @ x mul y#
+In quot @ x div y#
+In rem @ x mod y#
+flt pi @ 3.14#
+flt area @ pi mul 5#
+In bad @ 3.14#
+
+In x @ 3#
+In y @ 3#
+In sum @ x add y#
+Show(sum)#
+Iff (x grt y) {
+    Show(x)#
+} oriff (x eql y) {
+    Show(0)#
+} or {
+    Show(y)#
+}
+In x @ 0#
+wlp (x lrt 5) {
+    Show(x)#
+    x @@ 1#
+}
+flp (1:6) {
+    Show(i)#
+}
