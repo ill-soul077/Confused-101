@@ -1,151 +1,17 @@
 === Parsing ===
 === Executing ===
-Error: Undefined variable 'x'.
-Stored: result = 10 (type: int)
-Stored: pw = 256 (type: int)
-10
-256
-Error: Undefined variable 'x'.
-Iff condition = 0 (FALSE)
-x is small
-Stored: grade = 2 (type: int)
-pass
-flp starting: 0 to 4
-0
-1
+Stored: x = 5 (type: int)
+Stored: y = 3 (type: int)
+Stored: val = 2 (type: int)
 2
-3
-flp done
-Stored: counter = 0 (type: int)
-wlp starting...
-Updated: counter += 1.00
-1
-Updated: counter += 1.00
-2
-Updated: counter += 1.00
-3
-wlp done (3 iterations)
-Return: 25.00
-Function 'square' returned: 25.00
-Stored: sq = 25 (type: int)
-25
-Stack 'mystack' declared. (linked-list, unlimited size)
-Pushed 10 onto stack 'mystack'  [size=1]
-Pushed 20 onto stack 'mystack'  [size=2]
-Pushed 30 onto stack 'mystack'  [size=3]
-0
-Popped 30 from stack 'mystack'  [size=2]
-0
-Queue 'myqueue' declared. (linked-list, unlimited size)
-Enqueued 100 into queue 'myqueue'  [size=1]
-Enqueued 200 into queue 'myqueue'  [size=2]
-Dequeued 100 from queue 'myqueue'  [size=1]
-Array 'nums' declared. (size=3)
-Array 'nums'[0] = 11
-Array 'nums'[1] = 22
-Array 'nums'[2] = 33
-11
-22
-33
-Error: Undefined variable 'word'.
-0
-0
-
-
 
 === Three Address Code ===
-t1 = 5 * 2
-t2 = x + t1
-result = t2
-t3 = 2 ^ 8
-pw = t3
-print result
-print pw
-t4 = x > 10
-if t4 goto L1
-goto L2
-L1:
-print_str "x is big"
-L2:
-print_str "x is small"
-grade = 2
-t5 = grade == 1
-if t5 goto L4
-t6 = grade == 2
-if t6 goto L5
-goto L6
-L4:
-print_str "fail"
-goto L3
-L5:
-print_str "pass"
-goto L3
-L6:
-print_str "unknown"
-goto L3
-L3:
-i = 0
-L7:
-t7 = i < 4
-if t7 goto L8
-goto L9
-L8:
-print i
-t8 = i + 1
-i = t8
-goto L7
-L9:
-counter = 0
-L10:
-t9 = counter < 3
-if t9 goto L11
-goto L12
-L11:
-t10 = counter + 1
-counter = t10
-print counter
-goto L10
-L12:
-
-; --- function square ---
-; param n
-t11 = n * n
-return t11
-; --- end square ---
-
-param 5
-t12 = call square
-sq = t12
-print sq
-stack_decl mystack
-push mystack 10
-push mystack 20
-push mystack 30
-t13 = empty_check mystack
-print t13
-pop mystack
-t14 = empty_check mystack
-print t14
-queue_decl myqueue
-push myqueue 100
-push myqueue 200
-pop myqueue
-array_decl nums size 3
-nums[0] = 11
-nums[1] = 22
-nums[2] = 33
-t15 = nums[0]
-print t15
-t16 = nums[1]
-print t16
-t17 = nums[2]
-print t17
-print word
-t18 = strlen word
-print t18
-t19 = strjoin word ?
-print_str t19
-t20 = takepart word 1 3
-print_str t20
+x = 5
+param x
+t1 = call show
+y = 3
+t2 = x - y
+val = t2
+print val
 === End TAC ===
 === Done ===
